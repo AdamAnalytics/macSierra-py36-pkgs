@@ -3,16 +3,13 @@
 '''
 from __future__ import absolute_import
 
-from six import string_types
-
 from ..core.enums import Location, OutputBackend
-from ..core.properties import Bool, Dict, Enum, Include, Instance, Int, List, Override, String
+from ..core.properties import Bool, Dict, Enum, Include, Instance, Int, List, Override, String, Float
 from ..core.property_mixins import LineProps, FillProps
 from ..core.query import find
 from ..core.validation import error, warning
 from ..core.validation.errors import REQUIRED_RANGE, REQUIRED_SCALE, INCOMPATIBLE_SCALE_AND_RANGE
-from ..core.validation.warnings import (MISSING_RENDERERS, NO_DATA_RENDERERS,
-                                        MALFORMED_CATEGORY_LABEL, SNAPPED_TOOLBAR_ANNOTATIONS)
+from ..core.validation.warnings import MISSING_RENDERERS, NO_DATA_RENDERERS, SNAPPED_TOOLBAR_ANNOTATIONS
 from ..util.deprecation import deprecated
 from ..util.plot_utils import _list_attr_splat, _select_helper
 from ..util.string import nice_join
@@ -26,19 +23,16 @@ from .ranges import Range, FactorRange, DataRange1d, Range1d
 from .renderers import DataRenderer, DynamicImageRenderer, GlyphRenderer, Renderer, TileRenderer
 from .scales import Scale, CategoricalScale, LinearScale, LogScale
 from .sources import DataSource, ColumnDataSource
-from .tools import Tool, Toolbar, ToolEvents
+from .tools import ResizeTool, Tool, Toolbar
 
 class Plot(LayoutDOM):
     ''' Model representing a plot, containing glyphs, guides, annotations.
 
     '''
 
-    __deprecated_attributes__ = ["webgl", "x_mapper_type", "y_mapper_type"]
+    __deprecated_attributes__ = ["webgl", "x_mapper_type", "y_mapper_type", "tool_events"]
 
     def __init__(self, **kwargs):
-        if "tool_events" not in kwargs:
-            kwargs["tool_events"] = ToolEvents()
-
         if "toolbar" in kwargs and "logo" in kwargs:
             raise ValueError("Conflicting properties set on plot: toolbar, logo.")
 
@@ -245,15 +239,17 @@ class Plot(LayoutDOM):
             None
 
         '''
-        if not all(isinstance(tool, Tool) for tool in tools):
-            raise ValueError("All arguments to add_tool must be Tool subclasses.")
-
         for tool in tools:
-            if tool.plot is not None:
-                raise ValueError("tool %s to be added already has 'plot' attribute set" % tool)
-            tool.plot = self
+            if isinstance(tool, ResizeTool):
+                deprecated("ResizeTool is removed in Bokeh 0.12.7, adding it is a no-op. In the future, accessing ResizeTool will be an error")
+                continue
+
+            if not isinstance(tool, Tool):
+                raise ValueError("All arguments to add_tool must be Tool subclasses.")
+
             if hasattr(tool, 'overlay'):
                 self.renderers.append(tool.overlay)
+
             self.toolbar.tools.append(tool)
 
     def add_glyph(self, source_or_glyph, glyph=None, **kw):
@@ -320,6 +316,7 @@ class Plot(LayoutDOM):
             DynamicImageRenderer : DynamicImageRenderer
 
         '''
+        deprecated((0, 12, 7), "add_dynamic_image", "GeoViews for GIS functions on top of Bokeh (http://geo.holoviews.org)")
         image_renderer = DynamicImageRenderer(image_source=image_source, **kw)
         self.renderers.append(image_renderer)
         return image_renderer
@@ -379,28 +376,6 @@ class Plot(LayoutDOM):
         if len(self.select(DataRenderer)) == 0:
             return str(self)
 
-    @warning(MALFORMED_CATEGORY_LABEL)
-    def _check_colon_in_category_label(self):
-        if not self.x_range: return
-        if not self.y_range: return
-
-        broken = []
-
-        for range_name in ['x_range', 'y_range']:
-            category_range = getattr(self, range_name)
-            if not isinstance(category_range, FactorRange): continue
-
-            for value in category_range.factors:
-                if not isinstance(value, string_types): break
-                if ':' in value:
-                    broken.append((range_name, value))
-                    break
-
-        if broken:
-            field_msg = ' '.join('[range:%s] [first_value: %s]' % (field, value)
-                                 for field, value in broken)
-            return '%s [renderer: %s]' % (field_msg, self)
-
     @warning(SNAPPED_TOOLBAR_ANNOTATIONS)
     def _check_snapped_toolbar_and_axis(self):
         if not self.toolbar_sticky: return
@@ -448,6 +423,16 @@ class Plot(LayoutDOM):
     def y_mapper_type(self, mapper_type):
         deprecated((0, 12, 6), "y_mapper_type", "y_scale")
         self.y_scale = self._scale(mapper_type)
+
+    @property
+    def tool_events(self):
+        deprecated((0, 12, 7), "tool_events", "bokeh.events.SelectionGeometry")
+        return None
+
+    @tool_events.setter
+    def tool_events(self, tool_events):
+        deprecated((0, 12, 7), "tool_events", "bokeh.events.SelectionGeometry")
+        pass
 
     @property
     def webgl(self):
@@ -528,10 +513,6 @@ class Plot(LayoutDOM):
     toolbar_sticky = Bool(default=True, help="""
     Stick the toolbar to the edge of the plot. Default: True. If False,
     the toolbar will be outside of the axes, titles etc.
-    """)
-
-    tool_events = Instance(ToolEvents, help="""
-    A ToolEvents object to share and report tool events.
     """)
 
     left = List(Instance(Renderer), help="""
@@ -710,4 +691,36 @@ class Plot(LayoutDOM):
     .. note::
         When set to ``webgl``, glyphs without a WebGL rendering implementation
         will fall back to rendering onto 2D canvas.
+    """)
+
+    match_aspect = Bool(default=False, help="""
+    Specify the aspect ratio behavior of the plot. Aspect ratio is defined as
+    the ratio of width over height. This property controls whether Bokeh should
+    attempt the match the (width/height) of *data space* to the (width/height)
+    in pixels of *screen space*.
+
+    Default is ``False`` which indicates that the *data* aspect ratio and the
+    *screen* aspect ratio vary independently. ``True`` indicates that the plot
+    aspect ratio of the axes will match the aspect ratio of the pixel extent
+    the axes. The end result is that a 1x1 area in data space is a square in
+    pixels, and conversely that a 1x1 pixel is a square in data units.
+
+    .. note::
+        This setting only takes effect when there are two dataranges. This
+        setting only sets the initial plot draw and subsequent resets. It is
+        possible for tools (single axis zoom, unconstrained box zoom) to
+        change the aspect ratio.
+    """)
+
+    aspect_scale = Float(default=1, help="""
+    A value to be given for increased aspect ratio control. This value is added
+    multiplicatively to the calculated value required for ``match_aspect``.
+    ``aspect_scale`` is defined as the ratio of width over height of the figure.
+
+    For example, a plot with ``aspect_scale`` value of 2 will result in a
+    square in *data units* to be drawn on the screen as a rectangle with a
+    pixel width twice as long as its pixel height.
+
+    .. note::
+        This setting only takes effect if ``match_aspect`` is set to ``True``.
     """)

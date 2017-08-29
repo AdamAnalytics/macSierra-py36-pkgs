@@ -1,9 +1,9 @@
 import numpy
 
-from chainer import cuda
 from chainer.functions.noise import simplified_dropconnect
 from chainer import initializers
 from chainer import link
+from chainer import variable
 
 
 class SimplifiedDropconnect(link.Link):
@@ -55,24 +55,23 @@ class SimplifiedDropconnect(link.Link):
 
         if initialW is None:
             initialW = initializers.HeNormal(1. / numpy.sqrt(2))
-        self._W_initializer = initializers._get_initializer(initialW)
 
-        if in_size is None:
-            self.add_uninitialized_param('W')
-        else:
-            self._initialize_params(in_size)
+        with self.init_scope():
+            W_initializer = initializers._get_initializer(initialW)
+            self.W = variable.Parameter(W_initializer)
+            if in_size is not None:
+                self._initialize_params(in_size)
 
-        if nobias:
-            self.b = None
-        else:
-            if initial_bias is None:
-                initial_bias = initializers.Constant(0)
-            bias_initializer = initializers._get_initializer(initial_bias)
-            self.add_param('b', out_size, initializer=bias_initializer)
+            if nobias:
+                self.b = None
+            else:
+                if initial_bias is None:
+                    initial_bias = initializers.Constant(0)
+                bias_initializer = initializers._get_initializer(initial_bias)
+                self.b = variable.Parameter(bias_initializer, out_size)
 
     def _initialize_params(self, in_size):
-        self.add_param('W', (self.out_size, in_size),
-                       initializer=self._W_initializer)
+        self.W.initialize((self.out_size, in_size))
 
     def __call__(self, x, train=True, mask=None):
         """Applies the simplified dropconnect layer.
@@ -84,8 +83,7 @@ class SimplifiedDropconnect(link.Link):
             train (bool):
                 If ``True``, executes simplified dropconnect.
                 Otherwise, simplified dropconnect link works as a linear unit.
-            mask (None or chainer.Variable or :class:`numpy.ndarray` or
-                cupy.ndarray):
+            mask (None or chainer.Variable or numpy.ndarray or cupy.ndarray):
                 If ``None``, randomized simplified dropconnect mask is
                 generated. Otherwise, The mask must be ``(n, M, N)``
                 shaped array. Main purpose of this option is debugging.
@@ -95,9 +93,8 @@ class SimplifiedDropconnect(link.Link):
             ~chainer.Variable: Output of the simplified dropconnect layer.
 
         """
-        if self.has_uninitialized_params:
-            with cuda.get_device_from_id(self._device_id):
-                self._initialize_params(x.size // len(x.data))
+        if self.W.data is None:
+            self._initialize_params(x.size // len(x.data))
         if mask is not None and 'mask' not in self.__dict__:
             self.add_persistent('mask', mask)
         return simplified_dropconnect.simplified_dropconnect(x, self.W, self.b,
