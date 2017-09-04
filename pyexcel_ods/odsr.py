@@ -22,9 +22,6 @@
 # limitations under the License.
 
 # Thanks to grt for the fixes
-import math
-from io import UnsupportedOperation
-
 from odf.teletype import extractText
 from odf.table import TableRow, TableCell, Table
 from odf.text import P
@@ -33,9 +30,8 @@ from odf.opendocument import load
 
 from pyexcel_io.book import BookReader
 from pyexcel_io.sheet import SheetReader
-from pyexcel_io._compact import OrderedDict, BytesIO
-
-import pyexcel_ods.converter as converter
+from pyexcel_io._compact import OrderedDict
+import pyexcel_io.service as service
 
 
 class ODSSheet(SheetReader):
@@ -65,7 +61,7 @@ class ODSSheet(SheetReader):
 
     def __read_cell(self, cell):
         cell_type = cell.getAttrNS(OFFICENS, "value-type")
-        value_token = converter.VALUE_TOKEN.get(cell_type, "value")
+        value_token = service.VALUE_TOKEN.get(cell_type, "value")
         ret = None
         if cell_type == "string":
             text_content = self.__read_text_cell(cell)
@@ -75,11 +71,11 @@ class ODSSheet(SheetReader):
             currency = cell.getAttrNS(OFFICENS, cell_type)
             ret = value + ' ' + currency
         else:
-            if cell_type in converter.VALUE_CONVERTERS:
+            if cell_type in service.VALUE_CONVERTERS:
                 value = cell.getAttrNS(OFFICENS, value_token)
-                n_value = converter.VALUE_CONVERTERS[cell_type](value)
+                n_value = service.VALUE_CONVERTERS[cell_type](value)
                 if cell_type == 'float' and self.__auto_detect_int:
-                    if _is_integer_ok_for_xl_float(n_value):
+                    if service.has_no_digits_in_float(n_value):
                         n_value = int(n_value)
                 ret = n_value
             else:
@@ -106,16 +102,6 @@ class ODSBook(BookReader):
 
     def open_stream(self, file_stream, **keywords):
         """open ods file stream"""
-        if not hasattr(file_stream, 'seek'):
-            # python 2
-            # Hei zipfile in odfpy would do a seek
-            # but stream from urlib cannot do seek
-            file_stream = BytesIO(file_stream.read())
-        try:
-            file_stream.seek(0)
-        except UnsupportedOperation:
-            # python 3
-            file_stream = BytesIO(file_stream.read())
         BookReader.open_stream(self, file_stream, **keywords)
         self._load_from_memory()
 
@@ -161,8 +147,3 @@ class ODSBook(BookReader):
 
     def _load_from_file(self):
         self._native_book = load(self._file_name)
-
-
-def _is_integer_ok_for_xl_float(value):
-    """check if a float had zero value in digits"""
-    return value == math.floor(value)

@@ -1,13 +1,18 @@
 {
-  "libraries": [],
-  "library_dirs": [],
+  "libraries": [
+    "zmq"
+  ],
   "include_dirs": [
-    "bundled/zeromq/include",
+    "/usr/local/Cellar/zeromq/4.2.2/include",
     "zmq/utils",
     "zmq/backend/cython",
     "zmq/devices"
   ],
+  "library_dirs": [
+    "/usr/local/Cellar/zeromq/4.2.2/lib"
+  ],
   "runtime_library_dirs": [],
+  "extra_link_args": [],
   "define_macros": [
     [
       "HAVE_SYS_UN_H",

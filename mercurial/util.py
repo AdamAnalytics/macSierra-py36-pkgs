@@ -13,8 +13,9 @@ This contains helper routines that are independent of the SCM core and
 hide platform-specific details from the core.
 """
 
-from __future__ import absolute_import
 
+
+import abc
 import bz2
 import calendar
 import codecs
@@ -171,6 +172,14 @@ os.stat_float_times(False)
 def safehasattr(thing, attr):
     return getattr(thing, attr, _notset) is not _notset
 
+def bytesinput(fin, fout, *args, **kwargs):
+    sin, sout = sys.stdin, sys.stdout
+    try:
+        sys.stdin, sys.stdout = encoding.strio(fin), encoding.strio(fout)
+        return encoding.strtolocal(pycompat.rawinput(*args, **kwargs))
+    finally:
+        sys.stdin, sys.stdout = sin, sout
+
 def bitsfrom(container):
     bits = 0
     for bit in container:
@@ -240,7 +249,7 @@ class digester(object):
             self.update(s)
 
     def update(self, data):
-        for h in self._hashes.values():
+        for h in list(self._hashes.values()):
             h.update(data)
 
     def __getitem__(self, key):
@@ -274,7 +283,7 @@ class digestchecker(object):
         self._size = size
         self._got = 0
         self._digests = dict(digests)
-        self._digester = digester(self._digests.keys())
+        self._digester = digester(list(self._digests.keys()))
 
     def read(self, length=-1):
         content = self._fh.read(length)
@@ -286,7 +295,7 @@ class digestchecker(object):
         if self._size != self._got:
             raise Abort(_('size mismatch: expected %d, got %d') %
                 (self._size, self._got))
-        for k, v in self._digests.items():
+        for k, v in list(self._digests.items()):
             if v != self._digester[k]:
                 # i18n: first parameter is a digest name
                 raise Abort(_('%s mismatch: expected %s, got %s') %
@@ -588,9 +597,33 @@ class sortdict(collections.OrderedDict):
         # __setitem__() isn't called as of PyPy 5.8.0
         def update(self, src):
             if isinstance(src, dict):
-                src = src.iteritems()
+                src = iter(src.items())
             for k, v in src:
                 self[k] = v
+
+class transactional(object, metaclass=abc.ABCMeta):
+    """Base class for making a transactional type into a context manager."""
+
+    @abc.abstractmethod
+    def close(self):
+        """Successfully closes the transaction."""
+
+    @abc.abstractmethod
+    def release(self):
+        """Marks the end of the transaction.
+
+        If the transaction has not been closed, it will be aborted.
+        """
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if exc_type is None:
+                self.close()
+        finally:
+            self.release()
 
 @contextlib.contextmanager
 def acceptintervention(tr=None):
@@ -610,13 +643,17 @@ def acceptintervention(tr=None):
     finally:
         tr.release()
 
+@contextlib.contextmanager
+def nullcontextmanager():
+    yield
+
 class _lrucachenode(object):
     """A node in a doubly linked list.
 
     Holds a reference to nodes on either side as well as a key-value
     pair for the dictionary entry.
     """
-    __slots__ = (u'next', u'prev', u'key', u'value')
+    __slots__ = ('next', 'prev', 'key', 'value')
 
     def __init__(self):
         self.next = None
@@ -661,7 +698,7 @@ class lrucachedict(object):
         n = self._head
         for i in range(len(self._cache)):
             yield n.key
-            n = n.next
+            n = n.__next__
 
     def __getitem__(self, k):
         node = self._cache[k]
@@ -700,7 +737,7 @@ class lrucachedict(object):
         # Temporarily mark as newest item before re-adjusting head to make
         # this node the oldest item.
         self._movetohead(node)
-        self._head = node.next
+        self._head = node.__next__
 
     # Additional dict methods.
 
@@ -714,7 +751,7 @@ class lrucachedict(object):
         n = self._head
         while n.key is not _notset:
             n.markempty()
-            n = n.next
+            n = n.__next__
 
         self._cache.clear()
 
@@ -758,7 +795,7 @@ class lrucachedict(object):
         """
         head = self._head
         # C.next = D
-        node.prev.next = node.next
+        node.prev.next = node.__next__
         # D.prev = C
         node.next.prev = node.prev
         # N.prev = E
@@ -766,7 +803,7 @@ class lrucachedict(object):
         # N.next = A
         # It is tempting to do just "head" here, however if node is
         # adjacent to head, this will do bad things.
-        node.next = head.prev.next
+        node.next = head.prev.__next__
         # E.next = N
         node.next.prev = node
         # A.prev = N
@@ -876,7 +913,7 @@ filtertable = {
 
 def filter(s, cmd):
     "filter a string through a command that transforms its input to its output"
-    for name, fn in filtertable.iteritems():
+    for name, fn in filtertable.items():
         if cmd.startswith(name):
             return fn(s, cmd[len(name):].lstrip())
     return pipefilter(s, cmd)
@@ -934,10 +971,9 @@ def nogc(func):
     into. As a workaround, disable GC while building complex (huge)
     containers.
 
-    This garbage collector issue have been fixed in 2.7.
+    This garbage collector issue have been fixed in 2.7. But it still affect
+    CPython's performance.
     """
-    if sys.version_info >= (2, 7):
-        return func
     def wrapper(*args, **kwargs):
         gcenabled = gc.isenabled()
         gc.disable()
@@ -947,6 +983,10 @@ def nogc(func):
             if gcenabled:
                 gc.enable()
     return wrapper
+
+if pycompat.ispypy:
+    # PyPy runs slower with gc disabled
+    nogc = lambda x: x
 
 def pathto(root, n1, n2):
     '''return the relative path from one place to another.
@@ -982,7 +1022,7 @@ def mainfrozen():
     """
     return (safehasattr(sys, "frozen") or # new py2exe
             safehasattr(sys, "importers") or # old py2exe
-            imp.is_frozen(u"__main__")) # tools/freeze
+            imp.is_frozen("__main__")) # tools/freeze
 
 # the location of data files matching the source code
 if mainfrozen() and getattr(sys, 'frozen', None) != 'macosx_app':
@@ -1039,7 +1079,7 @@ def shellenviron(environ=None):
         return str(val)
     env = dict(encoding.environ)
     if environ:
-        env.update((k, py2shell(v)) for k, v in environ.iteritems())
+        env.update((k, py2shell(v)) for k, v in environ.items())
     env['HG'] = hgexecutable()
     return env
 
@@ -1991,7 +2031,7 @@ def parsedate(date, formats=None, bias=None):
                 datetime.timedelta(days=1)).strftime('%b %d')
 
     try:
-        when, offset = map(int, date.split(' '))
+        when, offset = list(map(int, date.split(' ')))
     except ValueError:
         # fill out defaults
         now = makedate()
@@ -2272,6 +2312,15 @@ def escapestr(s):
 def unescapestr(s):
     return codecs.escape_decode(s)[0]
 
+def forcebytestr(obj):
+    """Portably format an arbitrary object (e.g. exception) into a byte
+    string."""
+    try:
+        return pycompat.bytestr(obj)
+    except UnicodeEncodeError:
+        # non-ascii string, may be lossy
+        return pycompat.bytestr(encoding.strtolocal(str(obj)))
+
 def uirepr(s):
     # Avoid double backslash in Windows path repr()
     return repr(s).replace('\\\\', '\\')
@@ -2296,7 +2345,7 @@ def MBTextWrapper(**kwargs):
         def _cutdown(self, ucstr, space_left):
             l = 0
             colwidth = encoding.ucolwidth
-            for i in xrange(len(ucstr)):
+            for i in range(len(ucstr)):
                 l += colwidth(ucstr[i])
                 if space_left < l:
                     return (ucstr[:i], ucstr[i:])
@@ -2540,7 +2589,7 @@ def interpolate(prefix, mapping, s, fn=None, escape_prefix=False):
     its escaping.
     """
     fn = fn or (lambda s: s)
-    patterns = '|'.join(mapping.keys())
+    patterns = '|'.join(list(mapping.keys()))
     if escape_prefix:
         patterns += '|' + prefix
         if len(prefix) > 1:
@@ -3050,7 +3099,7 @@ class dirs(object):
         self._dirs = {}
         addpath = self.addpath
         if safehasattr(map, 'iteritems') and skip is not None:
-            for f, s in map.iteritems():
+            for f, s in map.items():
                 if s[0] != skip:
                     addpath(f)
         else:
@@ -3093,9 +3142,9 @@ def finddirs(path):
 SERVERROLE = 'server'
 CLIENTROLE = 'client'
 
-compewireprotosupport = collections.namedtuple(u'compenginewireprotosupport',
-                                               (u'name', u'serverpriority',
-                                                u'clientpriority'))
+compewireprotosupport = collections.namedtuple('compenginewireprotosupport',
+                                               ('name', 'serverpriority',
+                                                'clientpriority'))
 
 class compressormanager(object):
     """Holds registrations of various compression engines.
@@ -3125,7 +3174,7 @@ class compressormanager(object):
         return key in self._engines
 
     def __iter__(self):
-        return iter(self._engines.keys())
+        return iter(list(self._engines.keys()))
 
     def register(self, engine):
         """Register a compression engine with the manager.
@@ -3224,7 +3273,7 @@ class compressormanager(object):
 
         attr = 'serverpriority' if role == SERVERROLE else 'clientpriority'
 
-        engines = [self._engines[e] for e in self._wiretypes.values()]
+        engines = [self._engines[e] for e in list(self._wiretypes.values())]
         if onlyavailable:
             engines = [e for e in engines if e.available()]
 
@@ -3710,10 +3759,14 @@ def bundlecompressiontopics():
 
         value = docobject()
         value.__doc__ = doc
+        value._origdoc = engine.bundletype.__doc__
+        value._origfunc = engine.bundletype
 
         items[bt[0]] = value
 
     return items
+
+i18nfunctions = list(bundlecompressiontopics().values())
 
 # convenient shortcut
 dst = debugstacktrace

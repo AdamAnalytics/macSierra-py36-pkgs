@@ -1,13 +1,1 @@
-"""Warnings and Exceptions that can be raised by special functions."""
-import warnings
-
-
-class SpecialFunctionWarning(Warning):
-    """Warning that can be emitted by special functions."""
-    pass
-warnings.simplefilter("always", category=SpecialFunctionWarning)
-
-
-class SpecialFunctionError(Exception):
-    """Exception that can be raised by special functions."""
-    pass
+../../../../../Cellar/scipy/0.19.1_1/lib/python3.6/site-packages/scipy/special/sf_error.py

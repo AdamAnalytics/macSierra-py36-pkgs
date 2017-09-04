@@ -67,7 +67,6 @@ class Permutate(function.Function):
         return xp.take(x, indices, axis=self.axis)
 
     def forward(self, inputs):
-        self.retain_inputs((1,))
         x, inds = inputs
 
         if chainer.is_debug():

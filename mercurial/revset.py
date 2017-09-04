@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import re
 
@@ -193,7 +193,7 @@ def func(repo, subset, a, b, order):
 
     keep = lambda fn: getattr(fn, '__doc__', None) is not None
 
-    syms = [s for (s, fn) in symbols.items() if keep(fn)]
+    syms = [s for (s, fn) in list(symbols.items()) if keep(fn)]
     raise error.UnknownIdentifier(f, syms)
 
 # functions
@@ -400,7 +400,7 @@ def bookmark(repo, subset, x):
             bms.add(repo[bmrev].rev())
         else:
             matchrevs = set()
-            for name, bmrev in repo._bookmarks.iteritems():
+            for name, bmrev in repo._bookmarks.items():
                 if matcher(name):
                     matchrevs.add(bmrev)
             if not matchrevs:
@@ -409,7 +409,7 @@ def bookmark(repo, subset, x):
             for bmrev in matchrevs:
                 bms.add(repo[bmrev].rev())
     else:
-        bms = {repo[r].rev() for r in repo._bookmarks.values()}
+        bms = {repo[r].rev() for r in list(repo._bookmarks.values())}
     bms -= {node.nullrev}
     return subset & bms
 
@@ -459,14 +459,23 @@ def branch(repo, subset, x):
 
 @predicate('bumped()', safe=True)
 def bumped(repo, subset, x):
+    msg = ("'bumped()' is deprecated, "
+           "use 'phasedivergent()'")
+    repo.ui.deprecwarn(msg, '4.4')
+
+    return phasedivergent(repo, subset, x)
+
+@predicate('phasedivergent()', safe=True)
+def phasedivergent(repo, subset, x):
     """Mutable changesets marked as successors of public changesets.
 
-    Only non-public and non-obsolete changesets can be `bumped`.
+    Only non-public and non-obsolete changesets can be `phasedivergent`.
+    (EXPERIMENTAL)
     """
-    # i18n: "bumped" is a keyword
-    getargs(x, 0, 0, _("bumped takes no arguments"))
-    bumped = obsmod.getrevs(repo, 'bumped')
-    return subset & bumped
+    # i18n: "phasedivergent" is a keyword
+    getargs(x, 0, 0, _("phasedivergent takes no arguments"))
+    phasedivergent = obsmod.getrevs(repo, 'phasedivergent')
+    return subset & phasedivergent
 
 @predicate('bundle()', safe=True)
 def bundle(repo, subset, x):
@@ -711,13 +720,22 @@ def destination(repo, subset, x):
 
 @predicate('divergent()', safe=True)
 def divergent(repo, subset, x):
+    msg = ("'divergent()' is deprecated, "
+           "use 'contentdivergent()'")
+    repo.ui.deprecwarn(msg, '4.4')
+
+    return contentdivergent(repo, subset, x)
+
+@predicate('contentdivergent()', safe=True)
+def contentdivergent(repo, subset, x):
     """
-    Final successors of changesets with an alternative set of final successors.
+    Final successors of changesets with an alternative set of final
+    successors. (EXPERIMENTAL)
     """
-    # i18n: "divergent" is a keyword
-    getargs(x, 0, 0, _("divergent takes no arguments"))
-    divergent = obsmod.getrevs(repo, 'divergent')
-    return subset & divergent
+    # i18n: "contentdivergent" is a keyword
+    getargs(x, 0, 0, _("contentdivergent takes no arguments"))
+    contentdivergent = obsmod.getrevs(repo, 'contentdivergent')
+    return subset & contentdivergent
 
 @predicate('extinct()', safe=True)
 def extinct(repo, subset, x):
@@ -1051,7 +1069,7 @@ def head(repo, subset, x):
     getargs(x, 0, 0, _("head takes no arguments"))
     hs = set()
     cl = repo.changelog
-    for ls in repo.branchmap().itervalues():
+    for ls in repo.branchmap().values():
         hs.update(cl.rev(h) for h in ls)
     return subset & baseset(hs)
 
@@ -1225,7 +1243,7 @@ def named(repo, subset, x):
                                         % ns)
         namespaces.add(repo.names[pattern])
     else:
-        for name, ns in repo.names.iteritems():
+        for name, ns in repo.names.items():
             if matcher(name):
                 namespaces.add(ns)
         if not namespaces:
@@ -1835,18 +1853,18 @@ def subrepo(repo, subset, x):
             return s.added or s.modified or s.removed
 
         if s.added:
-            return any(submatches(c.substate.keys()))
+            return any(submatches(list(c.substate.keys())))
 
         if s.modified:
             subs = set(c.p1().substate.keys())
-            subs.update(c.substate.keys())
+            subs.update(list(c.substate.keys()))
 
             for path in submatches(subs):
                 if c.p1().substate.get(path) != c.substate.get(path):
                     return True
 
         if s.removed:
-            return any(submatches(c.p1().substate.keys()))
+            return any(submatches(list(c.p1().substate.keys())))
 
         return False
 
@@ -1919,12 +1937,20 @@ def tagged(repo, subset, x):
 
 @predicate('unstable()', safe=True)
 def unstable(repo, subset, x):
-    """Non-obsolete changesets with obsolete ancestors.
+    msg = ("'unstable()' is deprecated, "
+           "use 'orphan()'")
+    repo.ui.deprecwarn(msg, '4.4')
+
+    return orphan(repo, subset, x)
+
+@predicate('orphan()', safe=True)
+def orphan(repo, subset, x):
+    """Non-obsolete changesets with obsolete ancestors. (EXPERIMENTAL)
     """
-    # i18n: "unstable" is a keyword
-    getargs(x, 0, 0, _("unstable takes no arguments"))
-    unstables = obsmod.getrevs(repo, 'unstable')
-    return subset & unstables
+    # i18n: "orphan" is a keyword
+    getargs(x, 0, 0, _("orphan takes no arguments"))
+    orphan = obsmod.getrevs(repo, 'orphan')
+    return subset & orphan
 
 
 @predicate('user(string)', safe=True)
@@ -2083,7 +2109,7 @@ def matchany(ui, specs, repo=None, order=defineorder, localalias=None):
         aliases.extend(ui.configitems('revsetalias'))
         warn = ui.warn
     if localalias:
-        aliases.extend(localalias.items())
+        aliases.extend(list(localalias.items()))
     if aliases:
         tree = revsetlang.expandaliases(tree, aliases, warn=warn)
     tree = revsetlang.foldconcat(tree)
@@ -2103,7 +2129,7 @@ def makematcher(tree):
 def loadpredicate(ui, extname, registrarobj):
     """Load revset predicates from specified registrarobj
     """
-    for name, func in registrarobj._table.iteritems():
+    for name, func in registrarobj._table.items():
         symbols[name] = func
         if func._safe:
             safesymbols.add(name)
@@ -2112,4 +2138,4 @@ def loadpredicate(ui, extname, registrarobj):
 loadpredicate(None, None, predicate)
 
 # tell hggettext to extract docstrings from these functions:
-i18nfunctions = symbols.values()
+i18nfunctions = list(symbols.values())

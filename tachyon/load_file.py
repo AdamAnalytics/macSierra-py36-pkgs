@@ -17,10 +17,10 @@ def generate_children(nodes, curr_node, scope, bf, depth=0, max_depth=10, ctype=
             weights += (weights[slot] - val)/(len(weights)-1)
             weights[slot] = val
             scopes[slot].append(s)
-        scopes = filter(lambda x: x != [], scopes)
+        scopes = [x for x in scopes if x != []]
 	if depth > max_depth - 2:
-		scopes = map(lambda x: [x], scope)
-        for c in xrange(len(scopes)):
+		scopes = [[x] for x in scope]
+        for c in range(len(scopes)):
             if len(scopes[c]) == 1:
                 a = random.random()
                 child = Leaf(str(curr_id+1), a, 1-a, scopes[c][0], t=ctype)
@@ -39,14 +39,14 @@ def generate_children(nodes, curr_node, scope, bf, depth=0, max_depth=10, ctype=
         num_children = random.randint(bf[1][0], bf[1][1])
         scopes = [scope]*num_children
         #print scopes
-        for c in xrange(len(scopes)):
+        for c in range(len(scopes)):
             child = PrdNode(str(curr_id + 1))
             curr_node.children.append(str(curr_id + 1))
             curr_node.weights.append(0.75 - random.random()*0.5)
             child.parents.append(curr_node.id)
             nodes, curr_id = generate_children(nodes, child, scopes[c], bf, depth+1, max_depth, ctype=ctype)
         norm_factor = sum(curr_node.weights)
-        curr_node.weights = map(lambda x: x/norm_factor, curr_node.weights)
+        curr_node.weights = [x/norm_factor for x in curr_node.weights]
         nodes.append(curr_node)
         return nodes, curr_id+1
         
@@ -138,7 +138,7 @@ def add_ranks(id_node_dict, leaf_id):
 
 def create_layers(id_node_dict, rank):
     node_list = [[] for x in range(rank)]
-    for k in id_node_dict.keys():
+    for k in list(id_node_dict.keys()):
         n = id_node_dict[k]
         #print n.TRank
         node_list[n.TRank].append(n)
@@ -187,11 +187,11 @@ def build_random_net(bf, inp_size, out_size):
     total_net = []
     for i in range(out_size):
         init_node = SumNode(str(count))# if random.random() < 0.51 else PrdNode('0')
-        network, count = generate_children([], init_node, range(inp_size), bf)
+        network, count = generate_children([], init_node, list(range(inp_size)), bf)
         total_net += network
     network = total_net
     leaf_ids, prod_ids, sum_ids, id_node_dict = format_list_of_nodes(network)
-    print len(id_node_dict)
+    print(len(id_node_dict))
     #determine all the ranks for each node
     rank, id_node_dict = add_ranks(id_node_dict, leaf_ids)
     #turn them all into layers
@@ -200,11 +200,11 @@ def build_random_net(bf, inp_size, out_size):
     #create a dict for the position of every node given the ids
     pos_dict, node_layers = make_pos_dict(node_layers)
     for n in node_layers:
-        print len(n)
-    print len(leaf_ids)
+        print(len(n))
+    print(len(leaf_ids))
     #getting the ordering right
     leaf_id_order, input_layers, input_orders = clean_up_inputs(node_layers)
-    print leaf_id_order
+    print(leaf_id_order)
 
     return pos_dict, id_node_dict, node_layers, leaf_id_order, input_layers, input_orders
 
@@ -219,7 +219,7 @@ def load_file(fname, random_weights=False):
     if random_weightsi and False:
         for id in sum_ids:
             summ = sum(id_node_dict[id].weights)
-            id_node_dict[id].weights = map(lambda x: x/summ, id_node_dict[id].weights)
+            id_node_dict[id].weights = [x/summ for x in id_node_dict[id].weights]
     #determine all the ranks for each node
     rank, id_node_dict = add_ranks(id_node_dict, leaf_ids)
     #turn them all into layers

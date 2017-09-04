@@ -145,7 +145,7 @@ future, dropping the stream may become an option for channel we do not care to
 preserve.
 """
 
-from __future__ import absolute_import
+
 
 import errno
 import re
@@ -271,7 +271,7 @@ class unbundlerecords(object):
     def __len__(self):
         return len(self._sequences)
 
-    def __nonzero__(self):
+    def __bool__(self):
         return bool(self._sequences)
 
     __bool__ = __nonzero__
@@ -296,9 +296,31 @@ class bundleoperation(object):
         self.repo = repo
         self.ui = repo.ui
         self.records = unbundlerecords()
-        self.gettransaction = transactiongetter
         self.reply = None
         self.captureoutput = captureoutput
+        self.hookargs = {}
+        self._gettransaction = transactiongetter
+
+    def gettransaction(self):
+        transaction = self._gettransaction()
+
+        if self.hookargs:
+            # the ones added to the transaction supercede those added
+            # to the operation.
+            self.hookargs.update(transaction.hookargs)
+            transaction.hookargs = self.hookargs
+
+        # mark the hookargs as flushed.  further attempts to add to
+        # hookargs will result in an abort.
+        self.hookargs = None
+
+        return transaction
+
+    def addhookargs(self, hookargs):
+        if self.hookargs is None:
+            raise error.ProgrammingError('attempted to add hookargs to '
+                                         'operation after transaction started')
+        self.hookargs.update(hookargs)
 
 class TransactionUnavailable(RuntimeError):
     pass
@@ -350,7 +372,7 @@ def processbundle(repo, unbundler, transactiongetter=None, op=None):
         msg = ['bundle2-input-bundle:']
         if unbundler.params:
             msg.append(' %i params' % len(unbundler.params))
-        if op.gettransaction is None or op.gettransaction is _notransaction:
+        if op._gettransaction is None or op._gettransaction is _notransaction:
             msg.append(' no-transaction')
         else:
             msg.append(' with-transaction')
@@ -468,7 +490,8 @@ def _processpart(op, part):
             if output:
                 outpart = op.reply.newpart('output', data=output,
                                            mandatory=False)
-                outpart.addparam('in-reply-to', str(part.id), mandatory=False)
+                outpart.addparam(
+                    'in-reply-to', pycompat.bytestr(part.id), mandatory=False)
     # If exiting or interrupted, do not attempt to seek the stream in the
     # finally block below. This makes abort faster.
     except (SystemExit, KeyboardInterrupt):
@@ -564,7 +587,7 @@ class bundle20(object):
         """add a stream level parameter"""
         if not name:
             raise ValueError('empty parameter name')
-        if name[0] not in string.letters:
+        if name[0] not in pycompat.bytestr(string.ascii_letters):
             raise ValueError('non letter first character: %r' % name)
         self._params.append((name, value))
 
@@ -742,7 +765,7 @@ class unbundle20(unpackermixin):
         """
         if not name:
             raise ValueError('empty parameter name')
-        if name[0] not in string.letters:
+        if name[0] not in pycompat.bytestr(string.ascii_letters):
             raise ValueError('non letter first character: %r' % name)
         try:
             handler = b2streamparamsmap[name.lower()]
@@ -805,7 +828,11 @@ class unbundle20(unpackermixin):
         while headerblock is not None:
             part = unbundlepart(self.ui, headerblock, self._fp)
             yield part
+            # Seek to the end of the part to force it's consumption so the next
+            # part can be read. But then seek back to the beginning so the
+            # code consuming this generator has a part that starts at 0.
             part.seek(0, 2)
+            part.seek(0)
             headerblock = self._readpartheader()
         indebug(self.ui, 'end of bundle2 stream')
 
@@ -976,7 +1003,7 @@ class bundlepart(object):
             parttype = self.type.upper()
         else:
             parttype = self.type.lower()
-        outdebug(ui, 'part %s: "%s"' % (self.id, parttype))
+        outdebug(ui, 'part %s: "%s"' % (pycompat.bytestr(self.id), parttype))
         ## parttype
         header = [_pack(_fparttypesize, len(parttype)),
                   parttype, _pack(_fpartid, self.id),
@@ -994,7 +1021,7 @@ class bundlepart(object):
         for key, value in advpar:
             parsizes.append(len(key))
             parsizes.append(len(value))
-        paramsizes = _pack(_makefpartparamsizes(len(parsizes) / 2), *parsizes)
+        paramsizes = _pack(_makefpartparamsizes(len(parsizes) // 2), *parsizes)
         header.append(paramsizes)
         # key, value
         for key, value in manpar:
@@ -1021,11 +1048,12 @@ class bundlepart(object):
             ui.debug('bundle2-generatorexit\n')
             raise
         except BaseException as exc:
+            bexc = util.forcebytestr(exc)
             # backup exception data for later
             ui.debug('bundle2-input-stream-interrupt: encoding exception %s'
-                     % exc)
+                     % bexc)
             tb = sys.exc_info()[2]
-            msg = 'unexpected error: %s' % exc
+            msg = 'unexpected error: %s' % bexc
             interpart = bundlepart('error:abort', [('message', msg)],
                                    mandatory=False)
             interpart.id = 0
@@ -1047,7 +1075,8 @@ class bundlepart(object):
         Exists to handle the different methods to provide data to a part."""
         # we only support fixed size data now.
         # This will be improved in the future.
-        if util.safehasattr(self.data, 'next'):
+        if (util.safehasattr(self.data, 'next')
+            or util.safehasattr(self.data, '__next__')):
             buff = util.chunkbuffer(self.data)
             chunk = buff.read(preferedchunksize)
             while chunk:
@@ -1213,7 +1242,7 @@ class unbundlepart(unpackermixin):
         self.type = self._fromheader(typesize)
         indebug(self.ui, 'part type: "%s"' % self.type)
         self.id = self._unpackheader(_fpartid)[0]
-        indebug(self.ui, 'part id: "%s"' % self.id)
+        indebug(self.ui, 'part id: "%s"' % pycompat.bytestr(self.id))
         # extract mandatory bit from type
         self.mandatory = (self.type != self.type.lower())
         self.type = self.type.lower()
@@ -1225,7 +1254,7 @@ class unbundlepart(unpackermixin):
         fparamsizes = _makefpartparamsizes(mancount + advcount)
         paramsizes = self._unpackheader(fparamsizes)
         # make it a list of couple again
-        paramsizes = zip(paramsizes[::2], paramsizes[1::2])
+        paramsizes = list(zip(paramsizes[::2], paramsizes[1::2]))
         # split mandatory from advisory
         mansizes = paramsizes[:mancount]
         advsizes = paramsizes[mancount:]
@@ -1554,12 +1583,13 @@ def handlechangegroup(op, inpart):
         # This is definitely not the final form of this
         # return. But one need to start somewhere.
         part = op.reply.newpart('reply:changegroup', mandatory=False)
-        part.addparam('in-reply-to', str(inpart.id), mandatory=False)
+        part.addparam(
+            'in-reply-to', pycompat.bytestr(inpart.id), mandatory=False)
         part.addparam('return', '%i' % ret, mandatory=False)
     assert not inpart.read()
 
 _remotechangegroupparams = tuple(['url', 'size', 'digests'] +
-    ['digest:%s' % k for k in util.DIGESTS.keys()])
+    ['digest:%s' % k for k in list(util.DIGESTS.keys())])
 @parthandler('remote-changegroup', _remotechangegroupparams)
 def handleremotechangegroup(op, inpart):
     """apply a bundle10 on the repo, given an url and validation information
@@ -1617,7 +1647,8 @@ def handleremotechangegroup(op, inpart):
         # This is definitely not the final form of this
         # return. But one need to start somewhere.
         part = op.reply.newpart('reply:changegroup')
-        part.addparam('in-reply-to', str(inpart.id), mandatory=False)
+        part.addparam(
+            'in-reply-to', pycompat.bytestr(inpart.id), mandatory=False)
         part.addparam('return', '%i' % ret, mandatory=False)
     try:
         real_part.validate()
@@ -1672,7 +1703,7 @@ def handlecheckupdatedheads(op, inpart):
         op.gettransaction()
 
     currentheads = set()
-    for ls in op.repo.branchmap().itervalues():
+    for ls in op.repo.branchmap().values():
         currentheads.update(ls)
 
     for h in heads:
@@ -1760,7 +1791,8 @@ def handlepushkey(op, inpart):
     op.records.add('pushkey', record)
     if op.reply is not None:
         rpart = op.reply.newpart('reply:pushkey')
-        rpart.addparam('in-reply-to', str(inpart.id), mandatory=False)
+        rpart.addparam(
+            'in-reply-to', pycompat.bytestr(inpart.id), mandatory=False)
         rpart.addparam('return', '%i' % ret, mandatory=False)
     if inpart.mandatory and not ret:
         kwargs = {}
@@ -1787,6 +1819,7 @@ def handlephases(op, inpart):
     """apply phases from bundle part to repo"""
     headsbyphase = _readphaseheads(inpart)
     phases.updatephases(op.repo.unfiltered(), op.gettransaction(), headsbyphase)
+    op.records.add('phase-heads', {})
 
 @parthandler('reply:pushkey', ('return', 'in-reply-to'))
 def handlepushkeyreply(op, inpart):
@@ -1815,7 +1848,8 @@ def handleobsmarker(op, inpart):
     op.records.add('obsmarkers', {'new': new})
     if op.reply is not None:
         rpart = op.reply.newpart('reply:obsmarkers')
-        rpart.addparam('in-reply-to', str(inpart.id), mandatory=False)
+        rpart.addparam(
+            'in-reply-to', pycompat.bytestr(inpart.id), mandatory=False)
         rpart.addparam('new', '%i' % new, mandatory=False)
 
 
@@ -1849,3 +1883,17 @@ def handlehgtagsfnodes(op, inpart):
 
     cache.write()
     op.ui.debug('applied %i hgtags fnodes cache entries\n' % count)
+
+@parthandler('pushvars')
+def bundle2getvars(op, part):
+    '''unbundle a bundle2 containing shellvars on the server'''
+    # An option to disable unbundling on server-side for security reasons
+    if op.ui.configbool('push', 'pushvars.server'):
+        hookargs = {}
+        for key, value in part.advisoryparams:
+            key = key.upper()
+            # We want pushed variables to have USERVAR_ prepended so we know
+            # they came from the --pushvar flag.
+            key = "USERVAR_" + key
+            hookargs[key] = value
+        op.addhookargs(hookargs)

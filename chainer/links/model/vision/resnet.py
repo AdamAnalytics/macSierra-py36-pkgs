@@ -12,7 +12,7 @@ except ImportError as e:
 
 from chainer.dataset.convert import concat_examples
 from chainer.dataset import download
-from chainer import function
+from chainer import flag
 from chainer.functions.activation.relu import relu
 from chainer.functions.activation.softmax import softmax
 from chainer.functions.array.reshape import reshape
@@ -26,14 +26,13 @@ from chainer.links.connection.convolution_2d import Convolution2D
 from chainer.links.connection.linear import Linear
 from chainer.links.normalization.batch_normalization import BatchNormalization
 from chainer.serializers import npz
-from chainer.utils import argument
 from chainer.utils import imgproc
 from chainer.variable import Variable
 
 
 class ResNetLayers(link.Chain):
 
-    """A pre-trained CNN model provided by MSRA.
+    """A pre-trained CNN model provided by MSRA [1].
 
     When you specify the path of the pre-trained chainer model serialized as
     a ``.npz`` file in the constructor, this chain model automatically
@@ -48,8 +47,8 @@ class ResNetLayers(link.Chain):
     model that can be specified in the constructor,
     please use ``convert_caffemodel_to_npz`` classmethod instead.
 
-    See: K. He et. al., `Deep Residual Learning for Image Recognition
-    <https://arxiv.org/abs/1512.03385>`_
+    .. [1] K. He et. al., `Deep Residual Learning for Image Recognition
+        <https://arxiv.org/abs/1512.03385>`_
 
     Args:
         pretrained_model (str): the destination of the pre-trained
@@ -78,8 +77,6 @@ class ResNetLayers(link.Chain):
     """
 
     def __init__(self, pretrained_model, n_layers):
-        super(ResNetLayers, self).__init__()
-
         if pretrained_model:
             # As a sampling process is time-consuming,
             # we employ a zero initializer for faster computation.
@@ -98,24 +95,21 @@ class ResNetLayers(link.Chain):
             raise ValueError('The n_layers argument should be either 50, 101,'
                              ' or 152, but {} was given.'.format(n_layers))
 
-        with self.init_scope():
-            self.conv1 = Convolution2D(3, 64, 7, 2, 3, **kwargs)
-            self.bn1 = BatchNormalization(64)
-            self.res2 = BuildingBlock(block[0], 64, 64, 256, 1, **kwargs)
-            self.res3 = BuildingBlock(block[1], 256, 128, 512, 2, **kwargs)
-            self.res4 = BuildingBlock(block[2], 512, 256, 1024, 2, **kwargs)
-            self.res5 = BuildingBlock(block[3], 1024, 512, 2048, 2, **kwargs)
-            self.fc6 = Linear(2048, 1000)
-
+        super(ResNetLayers, self).__init__(
+            conv1=Convolution2D(3, 64, 7, 2, 3, **kwargs),
+            bn1=BatchNormalization(64),
+            res2=BuildingBlock(block[0], 64, 64, 256, 1, **kwargs),
+            res3=BuildingBlock(block[1], 256, 128, 512, 2, **kwargs),
+            res4=BuildingBlock(block[2], 512, 256, 1024, 2, **kwargs),
+            res5=BuildingBlock(block[3], 1024, 512, 2048, 2, **kwargs),
+            fc6=Linear(2048, 1000),
+        )
         if pretrained_model and pretrained_model.endswith('.caffemodel'):
             _retrieve(n_layers, 'ResNet-{}-model.npz'.format(n_layers),
                       pretrained_model, self)
         elif pretrained_model:
             npz.load_npz(pretrained_model, self)
-
-    @property
-    def functions(self):
-        return collections.OrderedDict([
+        self.functions = collections.OrderedDict([
             ('conv1', [self.conv1, self.bn1, relu]),
             ('pool1', [lambda x: max_pooling_2d(x, ksize=3, stride=2)]),
             ('res2', [self.res2]),
@@ -144,7 +138,7 @@ class ResNetLayers(link.Chain):
         # we import CaffeFunction here.
         from chainer.links.caffe.caffe_function import CaffeFunction
         caffemodel = CaffeFunction(path_caffemodel)
-        chainermodel = cls(pretrained_model=None, n_layers=n_layers)
+        chainermodel = cls(pretrained_model=None)
         if n_layers == 50:
             _transfer_resnet50(caffemodel, chainermodel)
         elif n_layers == 101:
@@ -156,20 +150,13 @@ class ResNetLayers(link.Chain):
                              ' or 152, but {} was given.'.format(n_layers))
         npz.save_npz(path_npz, chainermodel, compression=False)
 
-    def __call__(self, x, layers=['prob'], **kwargs):
-        """__call__(self, x, layers=['prob'])
-
-        Computes all the feature maps specified by ``layers``.
-
-        .. warning::
-
-           ``test`` argument is not supported anymore since v2.
-           Instead, use ``chainer.using_config('train', train)``.
-           See :func:`chainer.using_config`.
+    def __call__(self, x, layers=['prob'], test=True):
+        """Computes all the feature maps specified by ``layers``.
 
         Args:
             x (~chainer.Variable): Input variable.
             layers (list of str): The list of layer names you want to extract.
+            test (bool): If ``True``, BarchNormalization runs in test mode.
 
         Returns:
             Dictionary of ~chainer.Variable: A directory in which
@@ -177,11 +164,6 @@ class ResNetLayers(link.Chain):
             the corresponding feature map variable.
 
         """
-
-        argument.check_unexpected_kwargs(
-            kwargs, test='test argument is not supported anymore. '
-            'Use chainer.using_config')
-        argument.assert_kwargs_empty(kwargs)
 
         h = x
         activations = {}
@@ -190,31 +172,25 @@ class ResNetLayers(link.Chain):
             if len(target_layers) == 0:
                 break
             for func in funcs:
-                h = func(h)
+                if isinstance(func, BatchNormalization) or \
+                        isinstance(func, BuildingBlock):
+                    h = func(h, test=test)
+                else:
+                    h = func(h)
             if key in target_layers:
                 activations[key] = h
                 target_layers.remove(key)
         return activations
 
-    def extract(self, images, layers=['pool5'], size=(224, 224), **kwargs):
-        """extract(self, images, layers=['pool5'], size=(224, 224))
-
-        Extracts all the feature maps of given images.
+    def extract(self, images, layers=['pool5'], size=(224, 224),
+                test=True, volatile=flag.OFF):
+        """Extracts all the feature maps of given images.
 
         The difference of directly executing ``__call__`` is that
         it directly accepts images as an input and automatically
         transforms them to a proper variable. That is,
         it is also interpreted as a shortcut method that implicitly calls
         ``prepare`` and ``__call__`` functions.
-
-        .. warning::
-
-           ``test`` and ``volatile`` arguments are not supported anymore since
-           v2.
-           Instead, use ``chainer.using_config('train', train)`` and
-           ``chainer.using_config('enable_backprop', not volatile)``
-           respectively.
-           See :func:`chainer.using_config`.
 
         Args:
             images (iterable of PIL.Image or numpy.ndarray): Input images.
@@ -223,6 +199,8 @@ class ResNetLayers(link.Chain):
                 an input of CNN. All the given images are not resized
                 if this argument is ``None``, but the resolutions of
                 all the images should be the same.
+            test (bool): If ``True``, BatchNormalization runs in test mode.
+            volatile (~chainer.Flag): Volatility flag used for input variables.
 
         Returns:
             Dictionary of ~chainer.Variable: A directory in which
@@ -231,16 +209,9 @@ class ResNetLayers(link.Chain):
 
         """
 
-        argument.check_unexpected_kwargs(
-            kwargs, test='test argument is not supported anymore. '
-            'Use chainer.using_config',
-            volatile='volatile argument is not supported anymore. '
-            'Use chainer.using_config')
-        argument.assert_kwargs_empty(kwargs)
-
         x = concat_examples([prepare(img, size=size) for img in images])
-        x = Variable(self.xp.asarray(x))
-        return self(x, layers=layers)
+        x = Variable(self.xp.asarray(x), volatile=volatile)
+        return self(x, layers=layers, test=test)
 
     def predict(self, images, oversample=True):
         """Computes all the probabilities of given images.
@@ -262,21 +233,20 @@ class ResNetLayers(link.Chain):
             x = imgproc.oversample(x, crop_dims=(224, 224))
         else:
             x = x[:, :, 16:240, 16:240]
-        # Use no_backprop_mode to reduce memory consumption
-        with function.no_backprop_mode():
-            x = Variable(self.xp.asarray(x))
-            y = self(x, layers=['prob'])['prob']
-            if oversample:
-                n = y.data.shape[0] // 10
-                y_shape = y.data.shape[1:]
-                y = reshape(y, (n, 10) + y_shape)
-                y = sum(y, axis=1) / 10
+        # Set volatile option to ON to reduce memory consumption
+        x = Variable(self.xp.asarray(x), volatile=flag.ON)
+        y = self(x, layers=['prob'])['prob']
+        if oversample:
+            n = y.data.shape[0] // 10
+            y_shape = y.data.shape[1:]
+            y = reshape(y, (n, 10) + y_shape)
+            y = sum(y, axis=1) / 10
         return y
 
 
 class ResNet50Layers(ResNetLayers):
 
-    """A pre-trained CNN model with 50 layers provided by MSRA.
+    """A pre-trained CNN model with 50 layers provided by MSRA [1].
 
     When you specify the path of the pre-trained chainer model serialized as
     a ``.npz`` file in the constructor, this chain model automatically
@@ -300,8 +270,8 @@ class ResNet50Layers(ResNetLayers):
     or semantic segmentation use deeper ones as their building blocks, so these
     deeper ResNets are here for making reproduction work easier.
 
-    See: K. He et. al., `Deep Residual Learning for Image Recognition
-    <https://arxiv.org/abs/1512.03385>`_
+    .. [1] K. He et. al., `Deep Residual Learning for Image Recognition
+        <https://arxiv.org/abs/1512.03385>`_
 
     Args:
         pretrained_model (str): the destination of the pre-trained
@@ -333,7 +303,7 @@ class ResNet50Layers(ResNetLayers):
 
 class ResNet101Layers(ResNetLayers):
 
-    """A pre-trained CNN model with 101 layers provided by MSRA.
+    """A pre-trained CNN model with 101 layers provided by MSRA [1].
 
     When you specify the path of the pre-trained chainer model serialized as
     a ``.npz`` file in the constructor, this chain model automatically
@@ -353,8 +323,8 @@ class ResNet101Layers(ResNetLayers):
     dataset drops 1.1% from ResNet152. For many cases, ResNet50 may have the
     best balance between the accuracy and the model size.
 
-    See: K. He et. al., `Deep Residual Learning for Image Recognition
-    <https://arxiv.org/abs/1512.03385>`_
+    .. [1] K. He et. al., `Deep Residual Learning for Image Recognition
+        <https://arxiv.org/abs/1512.03385>`_
 
     Args:
         pretrained_model (str): the destination of the pre-trained
@@ -386,7 +356,7 @@ class ResNet101Layers(ResNetLayers):
 
 class ResNet152Layers(ResNetLayers):
 
-    """A pre-trained CNN model with 152 layers provided by MSRA.
+    """A pre-trained CNN model with 152 layers provided by MSRA [1].
 
     When you specify the path of the pre-trained chainer model serialized as
     a ``.npz`` file in the constructor, this chain model automatically
@@ -405,8 +375,8 @@ class ResNet152Layers(ResNetLayers):
     model and it achieves the best result on ImageNet classification task in
     `ILSVRC 2015 <http://image-net.org/challenges/LSVRC/2015/results#loc>`_.
 
-    See: K. He et. al., `Deep Residual Learning for Image Recognition
-    <https://arxiv.org/abs/1512.03385>`_
+    .. [1] K. He et. al., `Deep Residual Learning for Image Recognition
+        <https://arxiv.org/abs/1512.03385>`_
 
     Args:
         pretrained_model (str): the destination of the pre-trained
@@ -500,26 +470,21 @@ class BuildingBlock(link.Chain):
 
     def __init__(self, n_layer, in_channels, mid_channels,
                  out_channels, stride, initialW=None):
-        super(BuildingBlock, self).__init__()
-        with self.init_scope():
-            self.a = BottleneckA(
-                in_channels, mid_channels, out_channels, stride, initialW)
-            self._forward = ["a"]
-            for i in range(n_layer - 1):
-                name = 'b{}'.format(i + 1)
-                bottleneck = BottleneckB(out_channels, mid_channels, initialW)
-                setattr(self, name, bottleneck)
-                self._forward.append(name)
+        links = [
+            ('a', BottleneckA(
+                in_channels, mid_channels, out_channels, stride, initialW))
+        ]
+        for i in range(n_layer - 1):
+            name = 'b{}'.format(i + 1)
+            bottleneck = BottleneckB(out_channels, mid_channels, initialW)
+            links.append((name, bottleneck))
+        super(BuildingBlock, self).__init__(**dict(links))
+        self.forward = links
 
-    def __call__(self, x):
-        for name in self._forward:
-            l = getattr(self, name)
-            x = l(x)
+    def __call__(self, x, test=True):
+        for name, func in self.forward:
+            x = func(x, test=test)
         return x
-
-    @property
-    def forward(self):
-        return [getattr(self, name) for name in self._forward]
 
 
 class BottleneckA(link.Chain):
@@ -537,30 +502,30 @@ class BottleneckA(link.Chain):
 
     def __init__(self, in_channels, mid_channels, out_channels,
                  stride=2, initialW=None):
-        super(BottleneckA, self).__init__()
-        with self.init_scope():
-            self.conv1 = Convolution2D(
-                in_channels, mid_channels, 1, stride, 0, initialW=initialW,
-                nobias=True)
-            self.bn1 = BatchNormalization(mid_channels)
-            self.conv2 = Convolution2D(
-                mid_channels, mid_channels, 3, 1, 1, initialW=initialW,
-                nobias=True)
-            self.bn2 = BatchNormalization(mid_channels)
-            self.conv3 = Convolution2D(
-                mid_channels, out_channels, 1, 1, 0, initialW=initialW,
-                nobias=True)
-            self.bn3 = BatchNormalization(out_channels)
-            self.conv4 = Convolution2D(
-                in_channels, out_channels, 1, stride, 0, initialW=initialW,
-                nobias=True)
-            self.bn4 = BatchNormalization(out_channels)
+        super(BottleneckA, self).__init__(
+            conv1=Convolution2D(
+                in_channels, mid_channels, 1, stride, 0,
+                initialW=initialW, nobias=True),
+            bn1=BatchNormalization(mid_channels),
+            conv2=Convolution2D(
+                mid_channels, mid_channels, 3, 1, 1,
+                initialW=initialW, nobias=True),
+            bn2=BatchNormalization(mid_channels),
+            conv3=Convolution2D(
+                mid_channels, out_channels, 1, 1, 0,
+                initialW=initialW, nobias=True),
+            bn3=BatchNormalization(out_channels),
+            conv4=Convolution2D(
+                in_channels, out_channels, 1, stride, 0,
+                initialW=initialW, nobias=True),
+            bn4=BatchNormalization(out_channels),
+        )
 
-    def __call__(self, x):
-        h1 = relu(self.bn1(self.conv1(x)))
-        h1 = relu(self.bn2(self.conv2(h1)))
-        h1 = self.bn3(self.conv3(h1))
-        h2 = self.bn4(self.conv4(x))
+    def __call__(self, x, test=True):
+        h1 = relu(self.bn1(self.conv1(x), test=test))
+        h1 = relu(self.bn2(self.conv2(h1), test=test))
+        h1 = self.bn3(self.conv3(h1), test=test)
+        h2 = self.bn4(self.conv4(x), test=test)
         return relu(h1 + h2)
 
 
@@ -576,25 +541,25 @@ class BottleneckB(link.Chain):
     """
 
     def __init__(self, in_channels, mid_channels, initialW=None):
-        super(BottleneckB, self).__init__()
-        with self.init_scope():
-            self.conv1 = Convolution2D(
-                in_channels, mid_channels, 1, 1, 0, initialW=initialW,
-                nobias=True)
-            self.bn1 = BatchNormalization(mid_channels)
-            self.conv2 = Convolution2D(
-                mid_channels, mid_channels, 3, 1, 1, initialW=initialW,
-                nobias=True)
-            self.bn2 = BatchNormalization(mid_channels)
-            self.conv3 = Convolution2D(
-                mid_channels, in_channels, 1, 1, 0, initialW=initialW,
-                nobias=True)
-            self.bn3 = BatchNormalization(in_channels)
+        super(BottleneckB, self).__init__(
+            conv1=Convolution2D(
+                in_channels, mid_channels, 1, 1, 0,
+                initialW=initialW, nobias=True),
+            bn1=BatchNormalization(mid_channels),
+            conv2=Convolution2D(
+                mid_channels, mid_channels, 3, 1, 1,
+                initialW=initialW, nobias=True),
+            bn2=BatchNormalization(mid_channels),
+            conv3=Convolution2D(
+                mid_channels, in_channels, 1, 1, 0,
+                initialW=initialW, nobias=True),
+            bn3=BatchNormalization(in_channels),
+        )
 
-    def __call__(self, x):
-        h = relu(self.bn1(self.conv1(x)))
-        h = relu(self.bn2(self.conv2(h)))
-        h = self.bn3(self.conv3(h))
+    def __call__(self, x, test=True):
+        h = relu(self.bn1(self.conv1(x), test=test))
+        h = relu(self.bn2(self.conv2(h), test=test))
+        h = self.bn3(self.conv3(h), test=test)
         return relu(h + x)
 
 

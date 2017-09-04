@@ -1,11 +1,1 @@
-@RELATION iris
-
-@ATTRIBUTE sepallength  REAL
-@ATTRIBUTE sepalwidth   REAL
-@ATTRIBUTE petallength  REAL
-@ATTRIBUTE petalwidth   REAL
-@ATTRIBUTE class    {Iris-setosa,Iris-versicolor,Iris-virginica}
-
-@DATA
-
-% This file has no data
+../../../../../../../../Cellar/scipy/0.19.1_1/lib/python3.6/site-packages/scipy/io/arff/tests/data/nodata.arff

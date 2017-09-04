@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import collections
 import hashlib
@@ -17,6 +17,7 @@ from . import (
     error,
     match as matchmod,
     merge as mergemod,
+    pathutil,
     pycompat,
     scmutil,
     util,
@@ -351,7 +352,7 @@ def filterupdatesactions(repo, wctx, mctx, branchmerge, actions):
         sparsematch = matcher(repo, [mctx.rev()])
 
     temporaryfiles = []
-    for file, action in actions.iteritems():
+    for file, action in actions.items():
         type, args, msg = action
         files.add(file)
         if sparsematch(file):
@@ -477,7 +478,7 @@ def refreshwdir(repo, origstatus, origsparsematch, force=False):
                             '--force to bring them back dirty)'))
 
     # Check for files that were only in the dirstate.
-    for file, state in dirstate.iteritems():
+    for file, state in dirstate.items():
         if not file in files:
             old = origsparsematch(file)
             new = sparsematch(file)
@@ -486,7 +487,7 @@ def refreshwdir(repo, origstatus, origsparsematch, force=False):
 
     # Apply changes to disk
     typeactions = dict((m, []) for m in 'a f g am cd dc r dm dg m e k'.split())
-    for f, (m, args, msg) in actions.iteritems():
+    for f, (m, args, msg) in actions.items():
         if m not in typeactions:
             typeactions[m] = []
         typeactions[m].append((f, args, msg))
@@ -608,15 +609,15 @@ def importfromfiles(repo, opts, paths, force=False):
             includecount = len(includes - aincludes)
             excludecount = len(excludes - aexcludes)
 
-            fcounts = map(len, _updateconfigandrefreshwdir(
-                repo, includes, excludes, profiles, force=force))
+            fcounts = list(map(len, _updateconfigandrefreshwdir(
+                repo, includes, excludes, profiles, force=force)))
 
         printchanges(repo.ui, opts, profilecount, includecount, excludecount,
                      *fcounts)
 
 def updateconfig(repo, pats, opts, include=False, exclude=False, reset=False,
                  delete=False, enableprofile=False, disableprofile=False,
-                 force=False):
+                 force=False, usereporootpaths=False):
     """Perform a sparse config update.
 
     Only one of the actions may be performed.
@@ -636,10 +637,24 @@ def updateconfig(repo, pats, opts, include=False, exclude=False, reset=False,
             newexclude = set(oldexclude)
             newprofiles = set(oldprofiles)
 
-        if any(pat.startswith('/') for pat in pats):
-            repo.ui.warn(_('warning: paths cannot start with /, ignoring: %s\n')
-                         % ([pat for pat in pats if pat.startswith('/')]))
-        elif include:
+        if any(os.path.isabs(pat) for pat in pats):
+            raise error.Abort(_('paths cannot be absolute'))
+
+        if not usereporootpaths:
+            # let's treat paths as relative to cwd
+            root, cwd = repo.root, repo.getcwd()
+            abspats = []
+            for kindpat in pats:
+                kind, pat = matchmod._patsplit(kindpat, None)
+                if kind in matchmod.cwdrelativepatternkinds or kind is None:
+                    ap = (kind + ':' if kind else '') +\
+                            pathutil.canonpath(root, cwd, pat)
+                    abspats.append(ap)
+                else:
+                    abspats.append(kindpat)
+            pats = abspats
+
+        if include:
             newinclude.update(pats)
         elif exclude:
             newexclude.update(pats)
@@ -658,9 +673,9 @@ def updateconfig(repo, pats, opts, include=False, exclude=False, reset=False,
         excludecount = (len(newexclude - oldexclude) -
                         len(oldexclude - newexclude))
 
-        fcounts = map(len, _updateconfigandrefreshwdir(
+        fcounts = list(map(len, _updateconfigandrefreshwdir(
             repo, newinclude, newexclude, newprofiles, force=force,
-            removing=reset))
+            removing=reset)))
 
         printchanges(repo.ui, opts, profilecount, includecount,
                      excludecount, *fcounts)

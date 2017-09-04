@@ -3,10 +3,10 @@ import warnings
 
 import six
 
+import chainer
 from chainer import cuda
 from chainer.dataset import convert
-from chainer import reporter
-from chainer.training import updater
+from chainer.training.updater import StandardUpdater
 from chainer import variable
 
 try:
@@ -36,7 +36,7 @@ class _Worker(multiprocessing.Process):
                                           self.proc_id)
 
         self.model.to_gpu(self.device)
-        self.reporter = reporter.Reporter()
+        self.reporter = chainer.reporter.Reporter()
         self.reporter.add_observer('main', self.model)
 
     def run(self):
@@ -77,7 +77,7 @@ class _Worker(multiprocessing.Process):
                 gp = None
 
 
-class MultiprocessParallelUpdater(updater.StandardUpdater):
+class MultiprocessParallelUpdater(StandardUpdater):
 
     """Implementation of a multiprocess parallel GPU Updater.
 
@@ -117,7 +117,7 @@ class MultiprocessParallelUpdater(updater.StandardUpdater):
                 'NCCL is not enabled. MultiprocessParallelUpdater '
                 'requires NCCL.\n'
                 'Please reinstall chainer after you install NCCL.\n'
-                '(see https://github.com/chainer/chainer#installation).')
+                '(see https://github.com/pfnet/chainer#installation).')
 
         assert len(iterators) == len(devices)
         for iterator in iterators[1:]:
@@ -290,30 +290,6 @@ def _batch_memcpy():
             ''')
 
 
-def _gather(link, target):
-    size, num = size_num_grads(link)
-
-    ptrs = numpy.empty(num, dtype=numpy.uint64)
-    info = numpy.empty(num + 1, dtype=numpy.int32)
-    info[0] = 0
-    i = 0
-    for _, param in sorted(link.namedparams()):
-        if param.size == 0:
-            continue
-        ptrs[i] = 0  # NULL pointer
-        d = getattr(param, target)
-        if d is not None:
-            ptrs[i] = d.data.ptr
-        info[i + 1] = info[i] + param.size
-        i += 1
-    info[0] = num
-
-    ptrs = cuda.to_gpu(ptrs, stream=cuda.Stream.null)
-    info = cuda.to_gpu(info, stream=cuda.Stream.null)
-
-    return _batch_memcpy()(ptrs, info, size=size)
-
-
 def gather_grads(link):
     """Put together all gradient arrays and make a single array
 
@@ -324,7 +300,27 @@ def gather_grads(link):
     """
     if link.xp is numpy:
         raise RuntimeError('gather_grads works only on GPU.')
-    return _gather(link, "grad")
+
+    size, num = size_num_grads(link)
+
+    ptrs = numpy.empty(num, dtype=numpy.uint64)
+    info = numpy.empty(num + 1, dtype=numpy.int32)
+    info[0] = 0
+    i = 0
+    for param in link.params():
+        if param.size == 0:
+            continue
+        ptrs[i] = 0  # NULL pointer
+        if param.grad is not None:
+            ptrs[i] = param.grad.data.ptr
+        info[i + 1] = info[i] + param.size
+        i += 1
+    info[0] = num
+
+    ptrs = cuda.to_gpu(ptrs, stream=cuda.Stream.null)
+    info = cuda.to_gpu(info, stream=cuda.Stream.null)
+
+    return _batch_memcpy()(ptrs, info, size=size)
 
 
 def gather_params(link):
@@ -337,7 +333,27 @@ def gather_params(link):
     """
     if link.xp is numpy:
         raise RuntimeError('Link.gather_params works only on GPU.')
-    return _gather(link, "data")
+
+    size, num = size_num_grads(link)
+
+    ptrs = numpy.empty(num, dtype=numpy.uint64)
+    info = numpy.empty(num + 1, dtype=numpy.int32)
+    info[0] = 0
+    i = 0
+    for param in link.params():
+        if param.size == 0:
+            continue
+        ptrs[i] = 0  # NULL pointer
+        if param.data is not None:
+            ptrs[i] = param.data.data.ptr
+        info[i + 1] = info[i] + param.size
+        i += 1
+    info[0] = num
+
+    ptrs = cuda.to_gpu(ptrs, stream=cuda.Stream.null)
+    info = cuda.to_gpu(info, stream=cuda.Stream.null)
+
+    return _batch_memcpy()(ptrs, info, size=size)
 
 
 def scatter_grads(link, array):
@@ -348,11 +364,10 @@ def scatter_grads(link, array):
         array (cupy.ndarray): gathered array created by gather_grads()
     """
     offset = 0
-    for _, param in sorted(link.namedparams()):
+    for param in link.params():
         next_offset = offset + param.size
         param.grad = array[offset:next_offset].reshape(param.data.shape)
         offset = next_offset
-    assert array.size == offset
 
 
 def scatter_params(link, array):
@@ -363,8 +378,7 @@ def scatter_params(link, array):
         array (cupy.ndarray): gathered array created by gather_params()
     """
     offset = 0
-    for _, param in sorted(link.namedparams()):
+    for param in link.params():
         next_offset = offset + param.size
         param.data = array[offset:next_offset].reshape(param.data.shape)
         offset = next_offset
-    assert array.size == offset

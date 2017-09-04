@@ -1,15 +1,1 @@
-"""
-Module containing private utility functions
-===========================================
-
-The ``scipy._lib`` namespace is empty (for now).  Tests for all
-utilities in submodules of ``_lib`` can be run with::
-
-    from scipy import _lib
-    _lib.test()
-
-"""
-from __future__ import division, print_function, absolute_import
-
-from numpy.testing import Tester
-test = Tester().test
+../../../../../Cellar/scipy/0.19.1_1/lib/python3.6/site-packages/scipy/_lib/__init__.py

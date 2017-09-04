@@ -6,6 +6,7 @@ Home-page: https://github.com/explosion/murmurhash
 Author: Matthew Honnibal
 Author-email: matt@explosion.ai
 License: MIT
+Description-Content-Type: UNKNOWN
 Platform: UNKNOWN
 Classifier: Development Status :: 4 - Beta
 Classifier: Environment :: Console

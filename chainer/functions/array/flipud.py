@@ -15,12 +15,11 @@ class FlipUD(function.Function):
             x_type.ndim >= 1)
 
     def forward(self, inputs):
-        self.retain_inputs(())
         xp = cuda.get_array_module(*inputs)
         return xp.flipud(inputs[0]),
 
     def backward(self, inputs, grads):
-        xp = cuda.get_array_module(*grads)
+        xp = cuda.get_array_module(*inputs)
         return xp.flipud(grads[0]),
 
 

@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import collections
 import contextlib
@@ -41,7 +41,7 @@ from . import (
 urlreq = util.urlreq
 
 # for use with str.translate(None, _keepalnum), to keep just alphanumerics
-_keepalnum = ''.join(c for c in map(pycompat.bytechr, range(256))
+_keepalnum = ''.join(c for c in map(pycompat.bytechr, list(range(256)))
                      if not c.isalnum())
 
 # The config knobs that will be altered (if unset) by ui.tweakdefaults.
@@ -60,7 +60,7 @@ git = 1
 
 samplehgrcs = {
     'user':
-"""# example user config (see 'hg help config' for more info)
+b"""# example user config (see 'hg help config' for more info)
 [ui]
 # name and email, e.g.
 # username = Jane Doe <jdoe@example.com>
@@ -82,7 +82,7 @@ username =
 """,
 
     'cloned':
-"""# example repository config (see 'hg help config' for more info)
+b"""# example repository config (see 'hg help config' for more info)
 [paths]
 default = %s
 
@@ -99,7 +99,7 @@ default = %s
 """,
 
     'local':
-"""# example repository config (see 'hg help config' for more info)
+b"""# example repository config (see 'hg help config' for more info)
 [paths]
 # path aliases to other clones of this repo in URLs or filesystem paths
 # (see 'hg help config.paths' for more info)
@@ -115,7 +115,7 @@ default = %s
 """,
 
     'global':
-"""# example system-wide hg config (see 'hg help config' for more info)
+b"""# example system-wide hg config (see 'hg help config' for more info)
 
 [ui]
 # uncomment to disable color in command output
@@ -330,7 +330,7 @@ class ui(object):
     def readconfig(self, filename, root=None, trust=False,
                    sections=None, remap=None):
         try:
-            fp = open(filename, u'rb')
+            fp = open(filename, 'rb')
         except IOError:
             if not sections: # ignore unless we were looking for something
                 return
@@ -508,7 +508,7 @@ class ui(object):
                 sub[k[len(prefix):]] = v
 
         if self.debugflag and not untrusted and self._reportuntrusted:
-            for k, v in sub.items():
+            for k, v in list(sub.items()):
                 uvalue = self._ucfg.get(section, '%s:%s' % (name, k))
                 if uvalue is not None and uvalue != v:
                     self.debug('ignoring untrusted configuration option '
@@ -703,7 +703,7 @@ class ui(object):
             for k, v in items:
                 if ':' not in k:
                     newitems[k] = v
-            items = newitems.items()
+            items = list(newitems.items())
         if self.debugflag and not untrusted and self._reportuntrusted:
             for k, v in self._ucfg.items(section):
                 if self._tcfg.get(section, k) != v:
@@ -904,7 +904,8 @@ class ui(object):
                 if not getattr(self.ferr, 'closed', False):
                     self.ferr.flush()
         except IOError as inst:
-            raise error.StdioError(inst)
+            if inst.errno not in (errno.EPIPE, errno.EIO, errno.EBADF):
+                raise error.StdioError(inst)
 
     def flush(self):
         # opencode timeblockedsection because this is a critical path
@@ -913,12 +914,14 @@ class ui(object):
             try:
                 self.fout.flush()
             except IOError as err:
-                raise error.StdioError(err)
+                if err.errno not in (errno.EPIPE, errno.EIO, errno.EBADF):
+                    raise error.StdioError(err)
             finally:
                 try:
                     self.ferr.flush()
                 except IOError as err:
-                    raise error.StdioError(err)
+                    if err.errno not in (errno.EPIPE, errno.EIO, errno.EBADF):
+                        raise error.StdioError(err)
         finally:
             self._blockedtimes['stdio_blocked'] += \
                 (util.timer() - starttime) * 1000
@@ -971,7 +974,7 @@ class ui(object):
             return
 
         pagerenv = {}
-        for name, value in rcutil.defaultpagerenv().items():
+        for name, value in list(rcutil.defaultpagerenv().items()):
             if name not in encoding.environ:
                 pagerenv[name] = value
 
@@ -1101,7 +1104,7 @@ class ui(object):
         }
 
         # Feature-specific interface
-        if feature not in featureinterfaces.keys():
+        if feature not in list(featureinterfaces.keys()):
             # Programming error, not user error
             raise ValueError("Unknown feature requested %s" % feature)
 
@@ -1217,18 +1220,10 @@ class ui(object):
         self.write(prompt, prompt=True)
         self.flush()
 
-        # instead of trying to emulate raw_input, swap (self.fin,
-        # self.fout) with (sys.stdin, sys.stdout)
-        oldin = sys.stdin
-        oldout = sys.stdout
-        sys.stdin = self.fin
-        sys.stdout = self.fout
         # prompt ' ' must exist; otherwise readline may delete entire line
         # - http://bugs.python.org/issue12833
         with self.timeblockedsection('stdio'):
-            line = raw_input(' ')
-        sys.stdin = oldin
-        sys.stdout = oldout
+            line = util.bytesinput(self.fin, self.fout, r' ')
 
         # When stdin is in binary mode on Windows, it can cause
         # raw_input() to emit an extra trailing carriage return
@@ -1276,9 +1271,10 @@ class ui(object):
         m = re.match(br'(?s)(.+?)\$\$([^\$]*&[^ \$].*)', prompt)
         msg = m.group(1)
         choices = [p.strip(' ') for p in m.group(2).split('$$')]
-        return (msg,
-                [(s[s.index('&') + 1].lower(), s.replace('&', '', 1))
-                 for s in choices])
+        def choicetuple(s):
+            ampidx = s.index('&')
+            return s[ampidx + 1:ampidx + 2].lower(), s.replace('&', '', 1)
+        return (msg, [choicetuple(s) for s in choices])
 
     def promptchoice(self, prompt, default=0):
         """Prompt user with a message, read response, and ensure it matches
@@ -1592,12 +1588,12 @@ class ui(object):
         {(section, name) : value}"""
         backups = {}
         try:
-            for (section, name), value in overrides.items():
+            for (section, name), value in list(overrides.items()):
                 backups[(section, name)] = self.backupconfig(section, name)
                 self.setconfig(section, name, value, source)
             yield
         finally:
-            for __, backup in backups.items():
+            for __, backup in list(backups.items()):
                 self.restoreconfig(backup)
             # just restoring ui.quiet config to the previous value is not enough
             # as it does not update ui.quiet class member
@@ -1743,7 +1739,7 @@ class path(object):
         # Now process the sub-options. If a sub-option is registered, its
         # attribute will always be present. The value will be None if there
         # was no valid sub-option.
-        for suboption, (attr, func) in _pathsuboptions.iteritems():
+        for suboption, (attr, func) in _pathsuboptions.items():
             if suboption not in suboptions:
                 setattr(self, attr, None)
                 continue
@@ -1765,7 +1761,7 @@ class path(object):
         This is intended to be used for presentation purposes.
         """
         d = {}
-        for subopt, (attr, _func) in _pathsuboptions.iteritems():
+        for subopt, (attr, _func) in _pathsuboptions.items():
             value = getattr(self, attr)
             if value is not None:
                 d[subopt] = value

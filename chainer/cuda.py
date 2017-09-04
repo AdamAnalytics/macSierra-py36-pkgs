@@ -1,9 +1,9 @@
 """Device, context and memory management on CuPy.
 
-Chainer uses `CuPy <https://cupy.chainer.org/>`_ (with very thin wrapper)
-to exploit the speed of GPU computation. Following modules and classes defined
-in CuPy are imported to :mod:`chainer.cuda` module for convenience (refer to
-this table when reading chainer's source codes).
+Chainer uses CuPy (with very thin wrapper) to exploit the speed of GPU
+computation. Following modules and classes are imported to :mod:`cuda`
+module for convenience (refer to this table when reading chainer's source
+codes).
 
 ============================ =================================
  imported name                original name
@@ -30,7 +30,6 @@ import numpy
 import six
 
 import chainer
-
 
 available = False
 cudnn_enabled = False
@@ -66,6 +65,15 @@ if available:
         _resolution_error = e
 
 
+def init(arg=None):
+    warnings.warn(
+        'chainer.cuda.init is deprecated. You need to call nothing to '
+        'initialize your environment. Call chainer.cuda.check_cuda_available '
+        'to check availability of CUDA.',
+        DeprecationWarning)
+    check_cuda_available()
+
+
 def check_cuda_available():
     """Checks if CUDA is available.
 
@@ -74,7 +82,7 @@ def check_cuda_available():
     """
     if not available:
         msg = ('CUDA environment is not correctly set up\n'
-               '(see https://github.com/chainer/chainer#installation).')
+               '(see https://github.com/pfnet/chainer#installation).')
         msg += str(_resolution_error)
         raise RuntimeError(msg)
     if (not cudnn_enabled and
@@ -83,7 +91,7 @@ def check_cuda_available():
         warnings.warn(
             'cuDNN is not enabled.\n'
             'Please reinstall chainer after you install cudnn\n'
-            '(see https://github.com/chainer/chainer#installation).')
+            '(see https://github.com/pfnet/chainer#installation).')
         check_cuda_available._already_warned = True
 
 
@@ -165,9 +173,9 @@ def get_device_from_array(*arrays):
     The device on which the given CuPy array reside is returned.
 
     Args:
-        array (cupy.ndarray or list of cupy.ndarray):
+        array (:class:`cupy.ndarray` or list of :class:`cupy.ndarray`):
             A CuPy array which this function returns the device corresponding
-            to. If a list of :class:`cupy.ndarray` s are given, it returns
+            to. If a list of :class:`cupy.ndarray`s are given, it returns
             the first device object of an array in the list.
     """
     for array in arrays:
@@ -182,8 +190,8 @@ def get_device(*args):
     .. note::
 
         This API is deprecated. Please use
-        :func:`~chainer.cuda.get_device_from_id`
-        or :func:`~chainer.cuda.get_device_from_array` instead.
+        :method:`cupy.cuda.get_device_from_id`
+        or :method:`cupy.cuda.get_device_from_array` instead.
 
     This is a convenient utility to select a correct device if the type of
     ``arg`` is unknown (i.e., one can use this function on arrays that may be
@@ -300,7 +308,7 @@ def to_cpu(array, stream=None):
     """
     if isinstance(array, ndarray):
         check_cuda_available()
-        with get_device_from_array(array):
+        with get_device(array):
             return array.get(stream)
     elif isinstance(array, numpy.ndarray):
         return array
@@ -308,6 +316,156 @@ def to_cpu(array, stream=None):
         raise TypeError(
             'The array sent to cpu must be numpy.ndarray or cupy.ndarray.'
             '\nActual type: {0}.'.format(type(array)))
+
+
+def empty(shape, dtype=numpy.float32):
+    """Creates an uninitialized :class:`cupy.ndarray` object.
+
+    Args:
+        shape (tuple of ints): The shape of array.
+        dtype (numpy.dtype): Element type.
+
+    Returns:
+        cupy.ndarray: Uninitialized GPU array allocated by the memory pool.
+
+    """
+    warnings.warn(
+        'chainer.cuda.empty is deprecated. Use cupy.empty instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    return cupy.empty(shape, dtype)
+
+
+def full(shape, fill_value, dtype=numpy.float32, stream=None):
+    """Creates a constant-filled :class:`cupy.ndarray` object.
+
+    Args:
+        shape (tuple of ints): The shape of array.
+        fill_value: Constant to fill the array by.
+        dtype (numpy.dtype): Element type.
+        stream (cupy.cuda.Stream): CUDA stream.
+
+    Returns:
+        cupy.ndarray: Constant-filled GPU array allocated by the memory pool.
+
+    """
+    warnings.warn(
+        'chainer.cuda.full is deprecated. Use cupy.full instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    assert stream is None
+    return cupy.full(shape, fill_value, dtype=dtype)
+
+
+def zeros(shape, dtype=numpy.float32, stream=None):
+    """Creates a zero-filled :class:`cupy.ndarray` object.
+
+    This function is equivalent to ``full(shape, 0, dtype, stream)``.
+
+    """
+    warnings.warn(
+        'chainer.cuda.zeros is deprecated. Use cupy.zeros instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    assert stream is None
+    return cupy.zeros(shape, dtype=dtype)
+
+
+def ones(shape, dtype=numpy.float32, stream=None):
+    """Creates a zero-filled :class:`cupy.ndarray` object.
+
+    This function is equivalent to ``full(shape, 1, dtype, stream)``.
+
+    """
+    warnings.warn(
+        'chainer.cuda.ones is deprecated. Use cupy.ones instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    assert stream is None
+    return cupy.ones(shape, dtype=dtype)
+
+
+def empty_like(array):
+    """Creates an uninitialized GPU array like the given one.
+
+    Args:
+        array (cupy.ndarray or numpy.ndarray): Base array.
+
+    Returns:
+        cupy.ndarray: GPU array of the same shape and dtype as `array`.
+
+    """
+    warnings.warn(
+        'chainer.cuda.empty_like is deprecated. Use cupy.empty_like instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    if isinstance(array, cupy.ndarray):
+        return cupy.empty_like(array)
+    return cupy.empty(array.shape, dtype=array.dtype)
+
+
+def full_like(array, fill_value, stream=None):
+    """Creates a constant-filled :class:`cupy.ndarray` object like the given array.
+
+    Args:
+        array (cupy.ndarray or numpy.ndarray): Base array.
+        fill_value: Constant value to fill the array by.
+        stream (cupy.cuda.Stream): CUDA stream.
+
+    Returns:
+        cupy.ndarray: Constant-filled array.
+
+    """
+    warnings.warn(
+        'chainer.cuda.full_like is deprecated. Use cupy.full_like instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    assert stream is None
+    if isinstance(array, cupy.ndarray):
+        return cupy.full_like(array, fill_value)
+    return cupy.full(array.shape, fill_value, dtype=array.dtype)
+
+
+def zeros_like(array, stream=None):
+    """Creates a zero-filled :class:`cupy.ndarray` object like the given array.
+
+    Args:
+        array (cupy.ndarray or numpy.ndarray): Base array.
+        stream (cupy.cuda.Stream): CUDA stream.
+
+    Returns:
+        cupy.ndarray: Zero-filled array.
+
+    """
+    warnings.warn(
+        'chainer.cuda.zeros_like is deprecated. Use cupy.zeros_like instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    assert stream is None
+    if isinstance(array, cupy.ndarray):
+        return cupy.zeros_like(array)
+    return cupy.zeros(array.shape, dtype=array.dtype)
+
+
+def ones_like(array, stream=None):
+    """Creates a one-filled :class:`cupy.ndarray` object like the given array.
+
+    Args:
+        array (cupy.ndarray or numpy.ndarray): Base array.
+        stream (cupy.cuda.Stream): CUDA stream.
+
+    Returns:
+        cupy.ndarray: One-filled array.
+
+    """
+    warnings.warn(
+        'chainer.cuda.ones_like is deprecated. Use cupy.ones_like instead.',
+        DeprecationWarning)
+    check_cuda_available()
+    assert stream is None
+    if isinstance(array, cupy.ndarray):
+        return cupy.ones_like(array)
+    return cupy.ones(array.shape, dtype=array.dtype)
 
 
 def copy(array, out=None, out_device=None, stream=None):
@@ -337,10 +495,10 @@ def copy(array, out=None, out_device=None, stream=None):
     if out is None:
         if out_device is None:
             out_device = array
-        with _get_device(out_device):
+        with get_device(out_device):
             out = cupy.empty_like(array)
 
-    with get_device_from_array(array):
+    with get_device(array):
         cupy.copyto(out, array)
 
     return out
@@ -446,7 +604,7 @@ def get_array_module(*args):
 
     """
     if available:
-        args = [arg.data if isinstance(arg, chainer.variable.Variable) else arg
+        args = [arg.data if isinstance(arg, chainer.Variable) else arg
                 for arg in args]
         return cupy.get_array_module(*args)
     else:

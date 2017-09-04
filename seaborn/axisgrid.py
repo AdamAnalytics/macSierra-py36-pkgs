@@ -93,7 +93,7 @@ class Grid(object):
             figlegend._legend_title_box._text.set_font_properties(prop)
 
             # Draw the plot to set the bounding boxes correctly
-            plt.draw()
+            self.fig.draw(self.fig.canvas.get_renderer())
 
             # Calculate and set the new width of the figure so the legend fits
             legend_width = figlegend.get_window_extent().width / self.fig.dpi
@@ -101,7 +101,7 @@ class Grid(object):
             self.fig.set_figwidth(figure_width + legend_width)
 
             # Draw the plot again to get the new transformations
-            plt.draw()
+            self.fig.draw(self.fig.canvas.get_renderer())
 
             # Now calculate how much space we need on the right side
             legend_width = figlegend.get_window_extent().width / self.fig.dpi
@@ -197,7 +197,7 @@ _facet_docs = dict(
         of each facet in inches.\
     """),
     palette=dedent("""\
-    palette : seaborn color palette or dict, optional
+    palette : palette name, list, or dict, optional
         Colors to use for the different levels of the ``hue`` variable. Should
         be something that can be interpreted by :func:`color_palette`, or a
         dictionary mapping hue levels to matplotlib colors.\
@@ -500,7 +500,7 @@ class FacetGrid(Grid):
             :context: close-figs
 
             >>> g = sns.FacetGrid(tips, col="day", size=4, aspect=.5)
-            >>> g = g.map(sns.boxplot, "time", "total_bill")
+            >>> g = g.map(plt.hist, "total_bill", bins=bins)
 
         Specify the order for plot elements:
 
@@ -549,9 +549,8 @@ class FacetGrid(Grid):
             :context: close-figs
 
             >>> attend = sns.load_dataset("attention")
-            >>> g = sns.FacetGrid(attend, col="subject", col_wrap=5,
-            ...                   size=1.5, ylim=(0, 10))
-            >>> g = g.map(sns.pointplot, "solutions", "score", scale=.7)
+            >>> g = sns.FacetGrid(attend, col="subject", col_wrap=5, size=1.5)
+            >>> g = g.map(plt.plot, "solutions", "score", marker=".")
 
         Define a custom bivariate function to map onto the grid:
 
@@ -694,6 +693,19 @@ class FacetGrid(Grid):
         """
         # If color was a keyword argument, grab it here
         kw_color = kwargs.pop("color", None)
+
+        # Check for categorical plots without order information
+        if func.__module__ == "seaborn.categorical":
+            if "order" not in kwargs:
+                warning = ("Using the {} function without specifying "
+                           "`order` is likely to produce an incorrect "
+                           "plot.".format(func.__name__))
+                warnings.warn(warning)
+            if len(args) == 3 and "hue_order" not in kwargs:
+                warning = ("Using the {} function without specifying "
+                           "`hue_order` is likely to produce an incorrect "
+                           "plot.".format(func.__name__))
+                warnings.warn(warning)
 
         # Iterate over the data subsets
         for (row_i, col_j, hue_k), data_ijk in self.facet_data():
@@ -1328,7 +1340,7 @@ class PairGrid(Grid):
             self.diag_axes = np.array(diag_axes, np.object)
 
         # Plot on each of the diagonal axes
-        color = kwargs.pop('color', None)
+        fixed_color = kwargs.pop("color", None)
         for i, var in enumerate(self.x_vars):
             ax = self.diag_axes[i]
             hue_grouped = self.data[var].groupby(self.hue_vals)
@@ -1336,6 +1348,7 @@ class PairGrid(Grid):
             # Special-case plt.hist with stacked bars
             if func is plt.hist:
                 plt.sca(ax)
+
                 vals = []
                 for label in self.hue_names:
                     # Attempt to get data for this level, allowing for empty
@@ -1344,26 +1357,30 @@ class PairGrid(Grid):
                     except KeyError:
                         vals.append(np.array([]))
 
-                if color is None:
-                    color = self.palette
-                # check and see if histtype override was provided in kwargs
-                if 'histtype' in kwargs:
+                color = self.palette if fixed_color is None else fixed_color
+
+                if "histtype" in kwargs:
                     func(vals, color=color, **kwargs)
                 else:
-                    func(vals, color=color, histtype="barstacked",
-                         **kwargs)
+                    func(vals, color=color, histtype="barstacked", **kwargs)
+
             else:
+                plt.sca(ax)
+
                 for k, label_k in enumerate(self.hue_names):
+
                     # Attempt to get data for this level, allowing for empty
                     try:
                         data_k = hue_grouped.get_group(label_k)
                     except KeyError:
                         data_k = np.array([])
-                    plt.sca(ax)
-                    if color is None:
+
+                    if fixed_color is None:
                         color = self.palette[k]
-                    func(data_k, label=label_k,
-                         color=color, **kwargs)
+                    else:
+                        color = fixed_color
+
+                    func(data_k, label=label_k, color=color, **kwargs)
 
             self._clean_axis(ax)
 
@@ -1871,7 +1888,7 @@ def pairplot(data, hue=None, hue_order=None, palette=None,
     variables on the rows and columns.
 
     This is a high-level interface for :class:`PairGrid` that is intended to
-    make it easy to draw a few common styles. You should use :class`PairGrid`
+    make it easy to draw a few common styles. You should use :class:`PairGrid`
     directly if you need more flexibility.
 
     Parameters
@@ -2004,6 +2021,11 @@ def pairplot(data, hue=None, hue_order=None, palette=None,
         ...                  diag_kws=dict(shade=True))
 
     """
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(
+            "'data' must be pandas DataFrame object, not: {typefound}".format(
+                typefound=type(data)))
+
     if plot_kws is None:
         plot_kws = {}
     if diag_kws is None:
@@ -2028,8 +2050,8 @@ def pairplot(data, hue=None, hue_order=None, palette=None,
         if not isinstance(markers, list):
             markers = [markers] * n_markers
         if len(markers) != n_markers:
-            raise ValueError(("markers must be a singeton or a list of markers"
-                              " for each level of the hue variable"))
+            raise ValueError(("markers must be a singleton or a list of "
+                              "markers for each level of the hue variable"))
         grid.hue_kws = {"marker": markers}
 
     # Maybe plot on the diagonal

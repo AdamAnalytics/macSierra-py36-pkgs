@@ -148,10 +148,10 @@ lhc/tools/__init__.py,sha256=rSgILSGa7WrLFKjuha3uM-Dbsfa0uRDa21ZSPI8d-H8,27
 lhc/tools/sorter.py,sha256=aBxzIvnmmT7c5q8GgOqhMvj_ao1CGQFAeIPjbAJIf8Y,2326
 lhc/tools/tokeniser.py,sha256=DNilYPk7BxkKx8ykwzpvB37IgWShThlzkiYU5wswQrA,652
 lhc_python-python.dist-info/DESCRIPTION.rst,sha256=ck4eIk9oaCx-vFDuVu_Ux8u0Dfk4bO6bxnRob_C0k74,3479
-lhc_python-python.dist-info/METADATA,sha256=55RgWROVVL_o93-3wAXkVC5LyfgfWBBeB1LOkdz2tl8,4034
+lhc_python-python.dist-info/METADATA,sha256=utvdfbVt7bhFBZ3sHGH89s_q0OOubAwfMwg3Q-uLlV4,4068
 lhc_python-python.dist-info/RECORD,,
 lhc_python-python.dist-info/WHEEL,sha256=UMxW5ad6zjudXe4jPWTM-wnTIGreEj2qx-IkE2LS1Rk,93
-lhc_python-python.dist-info/metadata.json,sha256=wRrHxVEXUbGO959jD8CjT0LAKJY7gAcxdl-iwpKij9E,756
+lhc_python-python.dist-info/metadata.json,sha256=dR1pi7Fu6d_4kkPJnp1WCXG5JTylTJmF-HN5Of2pxPI,795
 lhc_python-python.dist-info/top_level.txt,sha256=VmF7_Q4s6oxzGp-cpnpvXwlYsc1_d0S0sBn2WW6jZsM,4
 lhc_python-python.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
 lhc/__pycache__/__init__.cpython-36.pyc,,

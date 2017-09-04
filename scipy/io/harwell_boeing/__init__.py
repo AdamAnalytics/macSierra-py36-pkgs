@@ -1,4 +1,1 @@
-from __future__ import division, print_function, absolute_import
-
-from scipy.io.harwell_boeing.hb import MalformedHeader, HBInfo, HBFile, \
-    HBMatrixType, hb_read, hb_write
+../../../../../../Cellar/scipy/0.19.1_1/lib/python3.6/site-packages/scipy/io/harwell_boeing/__init__.py

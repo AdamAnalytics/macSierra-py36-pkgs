@@ -1,6 +1,7 @@
 import numpy
 import six
 
+import chainer
 from chainer import cuda
 from chainer.functions.activation import lstm
 from chainer.functions.array import concat
@@ -11,45 +12,39 @@ from chainer.links.connection import linear
 from chainer import variable
 
 
-def _init_weight(weights, initializer):
-    initializers._get_initializer(initializer)(weights)
-
-
 class LSTMBase(link.Chain):
 
-    def __init__(self, in_size, out_size=None, lateral_init=None,
-                 upward_init=None, bias_init=0, forget_bias_init=1):
-        if out_size is None:
-            out_size, in_size = in_size, None
-
-        super(LSTMBase, self).__init__()
+    def __init__(self, in_size, out_size,
+                 lateral_init=None, upward_init=None,
+                 bias_init=0, forget_bias_init=0):
+        super(LSTMBase, self).__init__(
+            upward=linear.Linear(in_size, 4 * out_size, initialW=0),
+            lateral=linear.Linear(out_size, 4 * out_size,
+                                  initialW=0, nobias=True),
+        )
         self.state_size = out_size
         self.lateral_init = lateral_init
         self.upward_init = upward_init
         self.bias_init = bias_init
         self.forget_bias_init = forget_bias_init
 
-        with self.init_scope():
-            self.upward = linear.Linear(in_size, 4 * out_size, initialW=0)
-            self.lateral = linear.Linear(out_size, 4 * out_size, initialW=0,
-                                         nobias=True)
-            if in_size is not None:
-                self._initialize_params()
+        if in_size is not None:
+            self._initialize_params()
 
     def _initialize_params(self):
-        lateral_init = initializers._get_initializer(self.lateral_init)
-        upward_init = initializers._get_initializer(self.upward_init)
-
         for i in six.moves.range(0, 4 * self.state_size, self.state_size):
-            lateral_init(self.lateral.W.data[i:i + self.state_size, :])
-            upward_init(self.upward.W.data[i:i + self.state_size, :])
+            initializers.init_weight(
+                self.lateral.W.data[i:i + self.state_size, :],
+                self.lateral_init)
+            initializers.init_weight(
+                self.upward.W.data[i:i + self.state_size, :], self.upward_init)
 
         a, i, f, o = lstm._extract_gates(
             self.upward.b.data.reshape(1, 4 * self.state_size, 1))
-        _init_weight(a, self.bias_init)
-        _init_weight(i, self.bias_init)
-        _init_weight(f, self.forget_bias_init)
-        _init_weight(o, self.bias_init)
+        initializers.init_weight(a, self.bias_init)
+        initializers.init_weight(i, self.bias_init)
+        initializers.init_weight(f, self.forget_bias_init)
+        initializers.init_weight(o, self.bias_init)
 
 
 class StatelessLSTM(LSTMBase):
@@ -71,44 +66,6 @@ class StatelessLSTM(LSTMBase):
         upward (chainer.links.Linear): Linear layer of upward connections.
         lateral (chainer.links.Linear): Linear layer of lateral connections.
 
-    .. admonition:: Example
-
-        There are several ways to make a StatelessLSTM link.
-
-        Let a two-dimensional input array :math:`x`, a cell state array
-        :math:`h`, and the output array of the previous step :math:`h` be:
-
-        >>> x = np.zeros((1, 10), dtype='f')
-        >>> c = np.zeros((1, 20), dtype='f')
-        >>> h = np.zeros((1, 20), dtype='f')
-
-        1. Give both ``in_size`` and ``out_size`` arguments:
-
-            >>> l = L.StatelessLSTM(10, 20)
-            >>> c_new, h_new = l(c, h, x)
-            >>> c_new.shape
-            (1, 20)
-            >>> h_new.shape
-            (1, 20)
-
-        2. Omit ``in_size`` argument or fill it with ``None``:
-
-            The below two cases are the same.
-
-            >>> l = L.StatelessLSTM(20)
-            >>> c_new, h_new = l(c, h, x)
-            >>> c_new.shape
-            (1, 20)
-            >>> h_new.shape
-            (1, 20)
-
-            >>> l = L.StatelessLSTM(None, 20)
-            >>> c_new, h_new = l(c, h, x)
-            >>> c_new.shape
-            (1, 20)
-            >>> h_new.shape
-            (1, 20)
-
     """
 
     def __call__(self, c, h, x):
@@ -125,7 +82,7 @@ class StatelessLSTM(LSTMBase):
                 output of LSTM units.
 
         """
-        if self.upward.W.data is None:
+        if self.upward.has_uninitialized_params:
             in_size = x.size // x.shape[0]
             with cuda.get_device_from_id(self._device_id):
                 self.upward._initialize_params(in_size)
@@ -138,7 +95,8 @@ class StatelessLSTM(LSTMBase):
             xp = self.xp
             with cuda.get_device_from_id(self._device_id):
                 c = variable.Variable(
-                    xp.zeros((x.shape[0], self.state_size), dtype=x.dtype))
+                    xp.zeros((x.shape[0], self.state_size), dtype=x.dtype),
+                    volatile='auto')
         return lstm.lstm(c, lstm_in)
 
 
@@ -165,32 +123,32 @@ class LSTM(LSTMBase):
     applying the function.
 
     Args:
-        in_size (int): Dimension of input vectors. If it is ``None`` or
-            omitted, parameter initialization will be deferred until the first
-            forward data pass at which time the size will be determined.
+        in_size (int): Dimension of input vectors. If ``None``, parameter
+            initialization will be deferred until the first forward data pass
+            at which time the size will be determined.
         out_size (int): Dimensionality of output vectors.
         lateral_init: A callable that takes ``numpy.ndarray`` or
             ``cupy.ndarray`` and edits its value.
             It is used for initialization of the lateral connections.
-            May be ``None`` to use default initialization.
+            Maybe be ``None`` to use default initialization.
         upward_init: A callable that takes ``numpy.ndarray`` or
             ``cupy.ndarray`` and edits its value.
             It is used for initialization of the upward connections.
-            May be ``None`` to use default initialization.
+            Maybe be ``None`` to use default initialization.
         bias_init: A callable that takes ``numpy.ndarray`` or
             ``cupy.ndarray`` and edits its value
             It is used for initialization of the biases of cell input,
             input gate and output gate.and gates of the upward connection.
-            May be a scalar, in that case, the bias is
+            Maybe a scalar, in that case, the bias is
             initialized by this value.
-            If it is ``None``, the cell-input bias is initialized to zero.
+            Maybe be ``None`` to use default initialization.
         forget_bias_init: A callable that takes ``numpy.ndarray`` or
             ``cupy.ndarray`` and edits its value
             It is used for initialization of the biases of the forget gate of
             the upward connection.
-            May be a scalar, in that case, the bias is
+            Maybe a scalar, in that case, the bias is
             initialized by this value.
-            If it is ``None``, the forget bias is initialized to one.
+            Maybe be ``None`` to use default initialization.
 
 
     Attributes:
@@ -201,9 +159,7 @@ class LSTM(LSTMBase):
 
     """
 
-    def __init__(self, in_size, out_size=None, **kwargs):
-        if out_size is None:
-            in_size, out_size = None, in_size
+    def __init__(self, in_size, out_size, **kwargs):
         super(LSTM, self).__init__(in_size, out_size, **kwargs)
         self.reset_state()
 
@@ -231,8 +187,8 @@ class LSTM(LSTMBase):
             h (~chainer.Variable): A new output at the previous time step.
 
         """
-        assert isinstance(c, variable.Variable)
-        assert isinstance(h, variable.Variable)
+        assert isinstance(c, chainer.Variable)
+        assert isinstance(h, chainer.Variable)
         c_ = c
         h_ = h
         if self.xp == numpy:
@@ -262,7 +218,7 @@ class LSTM(LSTMBase):
             ~chainer.Variable: Outputs of updated LSTM units.
 
         """
-        if self.upward.W.data is None:
+        if self.upward.has_uninitialized_params:
             with cuda.get_device_from_id(self._device_id):
                 in_size = x.size // x.shape[0]
                 self.upward._initialize_params(in_size)
@@ -289,7 +245,8 @@ class LSTM(LSTMBase):
             xp = self.xp
             with cuda.get_device_from_id(self._device_id):
                 self.c = variable.Variable(
-                    xp.zeros((batch, self.state_size), dtype=x.dtype))
+                    xp.zeros((batch, self.state_size), dtype=x.dtype),
+                    volatile='auto')
         self.c, y = lstm.lstm(self.c, lstm_in)
 
         if h_rest is None:

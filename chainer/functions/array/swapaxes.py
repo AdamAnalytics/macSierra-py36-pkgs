@@ -17,7 +17,6 @@ class Swapaxes(function.Function):
         return 'Swapaxes'
 
     def forward(self, inputs):
-        self.retain_inputs(())
         x = inputs[0]
         y = x.swapaxes(self.axis1, self.axis2)
         return y,

@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 from .i18n import _
 from .node import (
@@ -89,7 +89,7 @@ def unwraphybrid(thing):
 
 def showdict(name, data, mapping, plural=None, key='key', value='value',
              fmt='%s=%s', separator=' '):
-    c = [{key: k, value: v} for k, v in data.iteritems()]
+    c = [{key: k, value: v} for k, v in data.items()]
     f = _showlist(name, c, mapping, plural, separator)
     return hybriddict(data, key=key, value=value, fmt=fmt, gen=f)
 
@@ -208,10 +208,22 @@ def getlatesttags(repo, ctx, cache, pattern=None):
             latesttags[rev] = ctx.date()[0], 0, [t for t in sorted(tags)]
             continue
         try:
-            # The tuples are laid out so the right one can be found by
-            # comparison.
-            pdate, pdist, ptag = max(
-                latesttags[p.rev()] for p in ctx.parents())
+            ptags = [latesttags[p.rev()] for p in ctx.parents()]
+            if len(ptags) > 1:
+                if ptags[0][2] == ptags[1][2]:
+                    # The tuples are laid out so the right one can be found by
+                    # comparison in this case.
+                    pdate, pdist, ptag = max(ptags)
+                else:
+                    def key(x):
+                        changessincetag = len(repo.revs('only(%d, %s)',
+                                                        ctx.rev(), x[2][0]))
+                        # Smallest number of changes since tag wins. Date is
+                        # used as tiebreaker.
+                        return [-changessincetag, x[0]]
+                    pdate, pdist, ptag = max(ptags, key=key)
+            else:
+                pdate, pdist, ptag = ptags[0]
         except KeyError:
             # Cache miss - recurse
             todo.append(rev)
@@ -469,6 +481,13 @@ def showgraphnode(repo, ctx, **args):
     else:
         return 'o'
 
+@templatekeyword('graphwidth')
+def showgraphwidth(repo, ctx, templ, **args):
+    """Integer. The width of the graph drawn by 'log --graph' or zero."""
+    # The value args['graphwidth'] will be this function, so we use an internal
+    # name to pass the value through props into this function.
+    return args.get('_graphwidth', 0)
+
 @templatekeyword('index')
 def showindex(**args):
     """Integer. The current iteration of the loop. (0 indexed)"""
@@ -561,7 +580,7 @@ def shownamespaces(**args):
     colornames = {}
     builtins = {}
 
-    for k, ns in repo.names.iteritems():
+    for k, ns in repo.names.items():
         namespaces[k] = showlist('name', ns.names(repo, ctx.node()), args)
         colornames[k] = ns.colorname
         builtins[k] = ns.builtin
@@ -599,10 +618,10 @@ def showpeerpaths(repo, **args):
     of your configuration file. (EXPERIMENTAL)"""
     # see commands.paths() for naming of dictionary keys
     paths = util.sortdict()
-    for k, p in sorted(repo.ui.paths.iteritems()):
+    for k, p in sorted(repo.ui.paths.items()):
         d = util.sortdict()
         d['url'] = p.rawloc
-        d.update((o, v) for o, v in sorted(p.suboptions.iteritems()))
+        d.update((o, v) for o, v in sorted(p.suboptions.items()))
         def f():
             yield d['url']
         paths[k] = hybriddict(d, gen=f())
@@ -617,7 +636,7 @@ def showpredecessors(repo, ctx, **args):
     """Returns the list if the closest visible successors
     """
     predecessors = sorted(obsutil.closestpredecessors(repo, ctx.node()))
-    predecessors = map(hex, predecessors)
+    predecessors = list(map(hex, predecessors))
 
     return _hybrid(None, predecessors,
                    lambda x: {'ctx': repo[x], 'revcache': {}},
@@ -654,6 +673,48 @@ def showsuccessorssets(repo, ctx, **args):
 
     return _hybrid(gen(data), data, lambda x: {'successorset': x},
                    lambda d: d["successorset"])
+
+@templatekeyword("succsandmarkers")
+def showsuccsandmarkers(repo, ctx, **args):
+    """Returns a list of dict for each final successor of ctx.
+
+    The dict contains successors node id in "successors" keys and the list of
+    obs-markers from ctx to the set of successors in "markers"
+
+    (EXPERIMENTAL)
+    """
+
+    values = obsutil.successorsandmarkers(repo, ctx)
+
+    if values is None:
+        values = []
+
+    # Format successors and markers to avoid exposing binary to templates
+    data = []
+    for i in values:
+        # Format successors
+        successors = i['successors']
+
+        successors = [hex(n) for n in successors]
+        successors = _hybrid(None, successors,
+                             lambda x: {'ctx': repo[x], 'revcache': {}},
+                             lambda d: _formatrevnode(d['ctx']))
+
+        # Format markers
+        finalmarkers = []
+        for m in i['markers']:
+            hexprec = hex(m[0])
+            hexsucs = tuple(hex(n) for n in m[1])
+            hexparents = None
+            if m[5] is not None:
+                hexparents = tuple(hex(n) for n in m[5])
+            newmarker = (hexprec, hexsucs) + m[2:5] + (hexparents,) + m[6:]
+            finalmarkers.append(newmarker)
+
+        data.append({'successors': successors, 'markers': finalmarkers})
+
+    f = _showlist('succsandmarkers', data, args)
+    return _hybrid(f, data, lambda x: x, lambda d: d)
 
 @templatekeyword('p1rev')
 def showp1rev(repo, ctx, templ, **args):
@@ -756,22 +817,35 @@ def showtags(**args):
 def loadkeyword(ui, extname, registrarobj):
     """Load template keyword from specified registrarobj
     """
-    for name, func in registrarobj._table.iteritems():
+    for name, func in registrarobj._table.items():
         keywords[name] = func
 
 @templatekeyword('termwidth')
-def termwidth(repo, ctx, templ, **args):
+def showtermwidth(repo, ctx, templ, **args):
     """Integer. The width of the current terminal."""
     return repo.ui.termwidth()
 
 @templatekeyword('troubles')
-def showtroubles(**args):
+def showtroubles(repo, **args):
     """List of strings. Evolution troubles affecting the changeset.
+
+    (DEPRECATED)
+    """
+    msg = ("'troubles' is deprecated, "
+           "use 'instabilities'")
+    repo.ui.deprecwarn(msg, '4.4')
+
+    return showinstabilities(repo=repo, **args)
+
+@templatekeyword('instabilities')
+def showinstabilities(**args):
+    """List of strings. Evolution instabilities affecting the changeset.
 
     (EXPERIMENTAL)
     """
     args = pycompat.byteskwargs(args)
-    return showlist('trouble', args['ctx'].troubles(), args)
+    return showlist('instability', args['ctx'].instabilities(), args,
+                    plural='instabilities')
 
 # tell hggettext to extract docstrings from these functions:
-i18nfunctions = keywords.values()
+i18nfunctions = list(keywords.values())

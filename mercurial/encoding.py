@@ -5,9 +5,9 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
 
-import array
+
+import io
 import locale
 import os
 import unicodedata
@@ -18,15 +18,26 @@ from . import (
     pycompat,
 )
 
+from .pure import (
+    charencode as charencodepure,
+)
+
+charencode = policy.importmod(r'charencode')
+
+isasciistr = charencode.isasciistr
+asciilower = charencode.asciilower
+asciiupper = charencode.asciiupper
+_jsonescapeu8fast = charencode.jsonescapeu8fast
+
 _sysstr = pycompat.sysstr
 
 if pycompat.ispy3:
-    unichr = chr
+    chr = chr
 
 # These unicode characters are ignored by HFS+ (Apple Technote 1150,
 # "Unicode Subtleties"), so we need to ignore them in some places for
 # sanity.
-_ignore = [unichr(int(x, 16)).encode("utf-8") for x in
+_ignore = [chr(int(x, 16)).encode("utf-8") for x in
            "200c 200d 200e 200f 202a 202b 202c 202d 202e "
            "206a 206b 206c 206d 206e 206f feff".split()]
 # verify the next function will work
@@ -35,9 +46,9 @@ assert all(i.startswith(("\xe2", "\xef")) for i in _ignore)
 def hfsignoreclean(s):
     """Remove codepoints ignored by HFS+ from s.
 
-    >>> hfsignoreclean(u'.h\u200cg'.encode('utf-8'))
+    >>> hfsignoreclean(u'.h\\u200cg'.encode('utf-8'))
     '.hg'
-    >>> hfsignoreclean(u'.h\ufeffg'.encode('utf-8'))
+    >>> hfsignoreclean(u'.h\\ufeffg'.encode('utf-8'))
     '.hg'
     """
     if "\xe2" in s or "\xef" in s:
@@ -55,8 +66,8 @@ elif _nativeenviron:
 else:
     # preferred encoding isn't known yet; use utf-8 to avoid unicode error
     # and recreate it once encoding is settled
-    environ = dict((k.encode(u'utf-8'), v.encode(u'utf-8'))
-                   for k, v in os.environ.items())  # re-exports
+    environ = dict((k.encode('utf-8'), v.encode('utf-8'))
+                   for k, v in list(os.environ.items()))  # re-exports
 
 _encodingfixers = {
     '646': lambda: 'ascii',
@@ -73,11 +84,11 @@ except locale.Error:
 encodingmode = environ.get("HGENCODINGMODE", "strict")
 fallbackencoding = 'ISO-8859-1'
 
-class localstr(str):
+class localstr(bytes):
     '''This class allows strings that are unmodified to be
     round-tripped to the local encoding and back'''
     def __new__(cls, u, l):
-        s = str.__new__(cls, l)
+        s = bytes.__new__(cls, l)
         s._utf8 = u
         return s
     def __hash__(self):
@@ -117,6 +128,9 @@ def tolocal(s):
     'foo: \\xc3\\xa4'
     """
 
+    if isasciistr(s):
+        return s
+
     try:
         try:
             # make sure string is actually stored in UTF-8
@@ -124,7 +138,7 @@ def tolocal(s):
             if encoding == 'UTF-8':
                 # fast path
                 return s
-            r = u.encode(_sysstr(encoding), u"replace")
+            r = u.encode(_sysstr(encoding), "replace")
             if u == r.decode(_sysstr(encoding)):
                 # r is a safe, non-lossy encoding of s
                 return r
@@ -133,7 +147,7 @@ def tolocal(s):
             # we should only get here if we're looking at an ancient changeset
             try:
                 u = s.decode(_sysstr(fallbackencoding))
-                r = u.encode(_sysstr(encoding), u"replace")
+                r = u.encode(_sysstr(encoding), "replace")
                 if u == r.decode(_sysstr(encoding)):
                     # r is a safe, non-lossy encoding of s
                     return r
@@ -141,7 +155,7 @@ def tolocal(s):
             except UnicodeDecodeError:
                 u = s.decode("utf-8", "replace") # last ditch
                 # can't round-trip
-                return u.encode(_sysstr(encoding), u"replace")
+                return u.encode(_sysstr(encoding), "replace")
     except LookupError as k:
         raise error.Abort(k, hint="please check your locale settings")
 
@@ -159,6 +173,8 @@ def fromlocal(s):
     # can we do a lossless round-trip?
     if isinstance(s, localstr):
         return s._utf8
+    if isasciistr(s):
+        return s
 
     try:
         u = s.decode(_sysstr(encoding), _sysstr(encodingmode))
@@ -199,8 +215,8 @@ else:
 if not _nativeenviron:
     # now encoding and helper functions are available, recreate the environ
     # dict to be exported to other modules
-    environ = dict((tolocal(k.encode(u'utf-8')), tolocal(v.encode(u'utf-8')))
-                   for k, v in os.environ.items())  # re-exports
+    environ = dict((tolocal(k.encode('utf-8')), tolocal(v.encode('utf-8')))
+                   for k, v in list(os.environ.items()))  # re-exports
 
 # How to treat ambiguous-width characters. Set to 'wide' to treat as wide.
 _wide = _sysstr(environ.get("HGENCODINGAMBIGUOUS", "narrow") == "wide"
@@ -208,7 +224,7 @@ _wide = _sysstr(environ.get("HGENCODINGAMBIGUOUS", "narrow") == "wide"
 
 def colwidth(s):
     "Find the column width of a string for display in the local encoding"
-    return ucolwidth(s.decode(_sysstr(encoding), u'replace'))
+    return ucolwidth(s.decode(_sysstr(encoding), 'replace'))
 
 def ucolwidth(d):
     "Find the column width of a Unicode string for display"
@@ -220,7 +236,7 @@ def ucolwidth(d):
 def getcols(s, start, c):
     '''Use colwidth to find a c-column substring of s starting at byte
     index start'''
-    for x in xrange(start + c, len(s)):
+    for x in range(start + c, len(s)):
         t = s[start:x]
         if colwidth(t) == c:
             return t
@@ -251,7 +267,7 @@ def trim(s, width, ellipsis='', leftside=False):
     +++
     >>> print trim(t, 1, ellipsis=ellipsis)
     +
-    >>> u = u'\u3042\u3044\u3046\u3048\u304a' # 2 x 5 = 10 columns
+    >>> u = u'\\u3042\\u3044\\u3046\\u3048\\u304a' # 2 x 5 = 10 columns
     >>> t = u.encode(encoding.encoding)
     >>> print trim(t, 12, ellipsis=ellipsis)
     \xe3\x81\x82\xe3\x81\x84\xe3\x81\x86\xe3\x81\x88\xe3\x81\x8a
@@ -312,43 +328,11 @@ def trim(s, width, ellipsis='', leftside=False):
     else:
         uslice = lambda i: u[:-i]
         concat = lambda s: s + ellipsis
-    for i in xrange(1, len(u)):
+    for i in range(1, len(u)):
         usub = uslice(i)
         if ucolwidth(usub) <= width:
             return concat(usub.encode(_sysstr(encoding)))
     return ellipsis # no enough room for multi-column characters
-
-def _asciilower(s):
-    '''convert a string to lowercase if ASCII
-
-    Raises UnicodeDecodeError if non-ASCII characters are found.'''
-    s.decode('ascii')
-    return s.lower()
-
-def asciilower(s):
-    # delay importing avoids cyclic dependency around "parsers" in
-    # pure Python build (util => i18n => encoding => parsers => util)
-    parsers = policy.importmod(r'parsers')
-    impl = getattr(parsers, 'asciilower', _asciilower)
-    global asciilower
-    asciilower = impl
-    return impl(s)
-
-def _asciiupper(s):
-    '''convert a string to uppercase if ASCII
-
-    Raises UnicodeDecodeError if non-ASCII characters are found.'''
-    s.decode('ascii')
-    return s.upper()
-
-def asciiupper(s):
-    # delay importing avoids cyclic dependency around "parsers" in
-    # pure Python build (util => i18n => encoding => parsers => util)
-    parsers = policy.importmod(r'parsers')
-    impl = getattr(parsers, 'asciiupper', _asciiupper)
-    global asciiupper
-    asciiupper = impl
-    return impl(s)
 
 def lower(s):
     "best-effort encoding-aware case-folding of local string s"
@@ -409,22 +393,6 @@ class normcasespecs(object):
     upper = 1
     other = 0
 
-_jsonmap = []
-_jsonmap.extend("\\u%04x" % x for x in range(32))
-_jsonmap.extend(pycompat.bytechr(x) for x in range(32, 127))
-_jsonmap.append('\\u007f')
-_jsonmap[0x09] = '\\t'
-_jsonmap[0x0a] = '\\n'
-_jsonmap[0x22] = '\\"'
-_jsonmap[0x5c] = '\\\\'
-_jsonmap[0x08] = '\\b'
-_jsonmap[0x0c] = '\\f'
-_jsonmap[0x0d] = '\\r'
-_paranoidjsonmap = _jsonmap[:]
-_paranoidjsonmap[0x3c] = '\\u003c'  # '<' (e.g. escape "</script>")
-_paranoidjsonmap[0x3e] = '\\u003e'  # '>'
-_jsonmap.extend(pycompat.bytechr(x) for x in range(128, 256))
-
 def jsonescape(s, paranoid=False):
     '''returns a string suitable for JSON
 
@@ -442,8 +410,8 @@ def jsonescape(s, paranoid=False):
     'this is a test'
     >>> jsonescape('escape characters: \\0 \\x0b \\x7f')
     'escape characters: \\\\u0000 \\\\u000b \\\\u007f'
-    >>> jsonescape('escape characters: \\t \\n \\r \\" \\\\')
-    'escape characters: \\\\t \\\\n \\\\r \\\\" \\\\\\\\'
+    >>> jsonescape('escape characters: \\b \\t \\n \\f \\r \\" \\\\')
+    'escape characters: \\\\b \\\\t \\\\n \\\\f \\\\r \\\\" \\\\\\\\'
     >>> jsonescape('a weird byte: \\xdd')
     'a weird byte: \\xed\\xb3\\x9d'
     >>> jsonescape('utf-8: caf\\xc3\\xa9')
@@ -454,6 +422,10 @@ def jsonescape(s, paranoid=False):
     If paranoid, non-ascii and common troublesome characters are also escaped.
     This is suitable for web output.
 
+    >>> s = 'escape characters: \\0 \\x0b \\x7f'
+    >>> assert jsonescape(s) == jsonescape(s, paranoid=True)
+    >>> s = 'escape characters: \\b \\t \\n \\f \\r \\" \\\\'
+    >>> assert jsonescape(s) == jsonescape(s, paranoid=True)
     >>> jsonescape('escape boundary: \\x7e \\x7f \\xc2\\x80', paranoid=True)
     'escape boundary: ~ \\\\u007f \\\\u0080'
     >>> jsonescape('a weird byte: \\xdd', paranoid=True)
@@ -466,20 +438,12 @@ def jsonescape(s, paranoid=False):
     '\\\\u003cfoo@example.org\\\\u003e'
     '''
 
-    if paranoid:
-        jm = _paranoidjsonmap
-    else:
-        jm = _jsonmap
-
     u8chars = toutf8b(s)
     try:
-        return ''.join(jm[x] for x in bytearray(u8chars))  # fast path
-    except IndexError:
+        return _jsonescapeu8fast(u8chars, paranoid)
+    except ValueError:
         pass
-    # non-BMP char is represented as UTF-16 surrogate pair
-    u16codes = array.array('H', u8chars.decode('utf-8').encode('utf-16'))
-    u16codes.pop(0)  # drop BOM
-    return ''.join(jm[x] if x < 128 else '\\u%04x' % x for x in u16codes)
+    return charencodepure.jsonescapeu8fallback(u8chars, paranoid)
 
 _utf8len = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 4]
 
@@ -530,6 +494,8 @@ def toutf8b(s):
     internal surrogate encoding as a UTF-8 string.)
     '''
 
+    if not isinstance(s, localstr) and isasciistr(s):
+        return s
     if "\xed" not in s:
         if isinstance(s, localstr):
             return s._utf8
@@ -547,12 +513,12 @@ def toutf8b(s):
             c = getutf8char(s, pos)
             if "\xed\xb0\x80" <= c <= "\xed\xb3\xbf":
                 # have to re-escape existing U+DCxx characters
-                c = unichr(0xdc00 + ord(s[pos])).encode('utf-8')
+                c = chr(0xdc00 + ord(s[pos])).encode('utf-8')
                 pos += 1
             else:
                 pos += len(c)
         except UnicodeDecodeError:
-            c = unichr(0xdc00 + ord(s[pos])).encode('utf-8')
+            c = chr(0xdc00 + ord(s[pos])).encode('utf-8')
             pos += 1
         r += c
     return r
@@ -580,6 +546,8 @@ def fromutf8b(s):
     True
     '''
 
+    if isasciistr(s):
+        return s
     # fast path - look for uDxxx prefixes in s
     if "\xed" not in s:
         return s
@@ -600,3 +568,18 @@ def fromutf8b(s):
             c = chr(ord(c.decode("utf-8")) & 0xff)
         r += c
     return r
+
+if pycompat.ispy3:
+    class strio(io.TextIOWrapper):
+        """Wrapper around TextIOWrapper that respects hg's encoding assumptions.
+
+        Also works around Python closing streams.
+        """
+
+        def __init__(self, buffer):
+            super(strio, self).__init__(buffer, encoding=_sysstr(encoding))
+
+        def __del__(self):
+            """Override __del__ so it doesn't close the underlying stream."""
+else:
+    strio = pycompat.identity

@@ -1,7 +1,7 @@
 # cython.* namespace for pure mode.
 from __future__ import absolute_import
 
-__version__ = "0.26"
+__version__ = "0.26.1"
 
 try:
     from __builtin__ import basestring
@@ -144,6 +144,7 @@ def cdiv(a, b):
     q = a / b
     if q < 0:
         q += 1
+    return q
 
 def cmod(a, b):
     r = a % b

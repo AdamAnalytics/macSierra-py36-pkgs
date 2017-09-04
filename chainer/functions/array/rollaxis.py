@@ -33,19 +33,17 @@ class Rollaxis(function.Function):
             type_check.expect(x_type.ndim > -self.start - 1)
 
     def forward(self, inputs):
-        self.retain_inputs(())
-        self._in_ndim = inputs[0].ndim
         xp = cuda.get_array_module(*inputs)
         return xp.rollaxis(inputs[0], self.axis, self.start),
 
     def backward(self, inputs, grads):
-        xp = cuda.get_array_module(*grads)
+        xp = cuda.get_array_module(*inputs)
         axis = self.axis
         if axis < 0:
-            axis += self._in_ndim
+            axis += inputs[0].ndim
         start = self.start
         if start < 0:
-            start += self._in_ndim
+            start += inputs[0].ndim
 
         if axis > start:
             axis += 1

@@ -7,14 +7,13 @@
     :copyright: (c) 2016-2017 by Onni Software Ltd
     :license: New BSD License
 """
-import math
 import datetime
 import xlrd
-from io import UnsupportedOperation
 
 from pyexcel_io.book import BookReader
 from pyexcel_io.sheet import SheetReader
-from pyexcel_io._compact import OrderedDict, PY2
+from pyexcel_io._compact import OrderedDict
+from pyexcel_io.service import has_no_digits_in_float
 
 
 XLS_KEYWORDS = [
@@ -59,7 +58,7 @@ class XLSheet(SheetReader):
         if cell_type == xlrd.XL_CELL_DATE:
             value = xldate_to_python_date(value)
         elif cell_type == xlrd.XL_CELL_NUMBER and self.__auto_detect_int:
-            if is_integer_ok_for_xl_float(value):
+            if has_no_digits_in_float(value):
                 value = int(value)
         return value
 
@@ -126,14 +125,6 @@ class XLSBook(BookReader):
         if self._file_name:
             xlrd_params['filename'] = self._file_name
         elif self._file_stream:
-            if PY2:
-                if hasattr(self._file_stream, 'seek'):
-                    self._file_stream.seek(0)
-            else:
-                try:
-                    self._file_stream.seek(0)
-                except UnsupportedOperation:
-                    pass
             file_content = self._file_stream.read()
             xlrd_params['file_contents'] = file_content
         elif self._file_content is not None:
@@ -150,11 +141,6 @@ class XLSBook(BookReader):
                 if key in XLS_KEYWORDS:
                     params[key] = self._keywords.pop(key)
         return params
-
-
-def is_integer_ok_for_xl_float(value):
-    """check if a float value had zero value in digits"""
-    return value == math.floor(value)
 
 
 def xldate_to_python_date(value):

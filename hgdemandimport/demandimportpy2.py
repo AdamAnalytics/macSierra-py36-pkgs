@@ -24,11 +24,10 @@ These imports will not be delayed:
   b = __import__(a)
 '''
 
-from __future__ import absolute_import
 
-import __builtin__ as builtins
+
+import builtins as builtins
 import contextlib
-import os
 import sys
 
 contextmanager = contextlib.contextmanager
@@ -285,8 +284,7 @@ def isenabled():
 
 def enable():
     "enable global demand-loading of modules"
-    if os.environ.get('HGDEMANDIMPORT') != 'disable':
-        builtins.__import__ = _demandimport
+    builtins.__import__ = _demandimport
 
 def disable():
     "disable global demand-loading of modules"

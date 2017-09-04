@@ -1,12 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 This module contains the individual fixes that the main fix_text function
 can perform.
 """
 
-from __future__ import unicode_literals
 import re
-import sys
 import codecs
 import warnings
 from ftfy.chardata import (possible_encoding, CHARMAP_ENCODINGS,
@@ -14,8 +11,7 @@ from ftfy.chardata import (possible_encoding, CHARMAP_ENCODINGS,
                            PARTIAL_UTF8_PUNCT_RE, ALTERED_UTF8_RE,
                            LOSSY_UTF8_RE, SINGLE_QUOTE_RE, DOUBLE_QUOTE_RE)
 from ftfy.badness import text_cost
-from ftfy.compatibility import unichr
-from html5lib.constants import entities
+from html import entities
 
 
 BYTES_ERROR_TEXT = """Hey wait, this isn't Unicode.
@@ -35,8 +31,8 @@ they're in:
 
 If you're confused by this, please read the Python Unicode HOWTO:
 
-    http://docs.python.org/%d/howto/unicode.html
-""" % sys.version_info[0]
+    http://docs.python.org/3/howto/unicode.html
+"""
 
 
 def fix_encoding(text):
@@ -198,16 +194,16 @@ def fix_one_step_and_explain(text):
                 # except they have b' ' where b'\xa0' would belong.
                 if ALTERED_UTF8_RE.search(encoded_bytes):
                     encoded_bytes = restore_byte_a0(encoded_bytes)
-                    cost = encoded_bytes.count(b'\xa0') * 2
+                    cost = encoded_bytes.count(0xa0) * 2
                     transcode_steps.append(('transcode', 'restore_byte_a0', cost))
 
                 # Check for the byte 0x1a, which indicates where one of our
                 # 'sloppy' codecs found a replacement character.
-                if encoding.startswith('sloppy') and b'\x1a' in encoded_bytes:
+                if encoding.startswith('sloppy') and 0x1a in encoded_bytes:
                     encoded_bytes = replace_lossy_sequences(encoded_bytes)
                     transcode_steps.append(('transcode', 'replace_lossy_sequences', 0))
 
-                if b'\xed' in encoded_bytes or b'\xc0' in encoded_bytes:
+                if 0xed in encoded_bytes or 0xc0 in encoded_bytes:
                     decoding = 'utf-8-variants'
 
                 decode_step = ('decode', decoding, 0)
@@ -296,6 +292,36 @@ def apply_plan(text, plan):
 HTML_ENTITY_RE = re.compile(r"&#?\w{0,8};")
 
 
+def _unescape_fixup(match):
+    """
+    Replace one matched HTML entity with the character it represents,
+    if possible.
+    """
+    text = match.group(0)
+    if text[:2] == "&#":
+        # character reference
+        try:
+            if text[:3] == "&#x":
+                codept = int(text[3:-1], 16)
+            else:
+                codept = int(text[2:-1])
+            if 0x80 <= codept < 0xa0:
+                # Decode this range of characters as Windows-1252, as Web
+                # browsers do in practice.
+                return bytes([codept]).decode('sloppy-windows-1252')
+            else:
+                return chr(codept)
+        except ValueError:
+            return text
+    else:
+        # This is a named entity; if it's a known HTML5 entity, replace
+        # it with the appropriate character.
+        try:
+            return entities.html5[text[1:]]
+        except KeyError:
+            return text
+
+
 def unescape_html(text):
     """
     Decode all three types of HTML entities/character references.
@@ -307,38 +333,11 @@ def unescape_html(text):
         >>> print(unescape_html('&lt;tag&gt;'))
         <tag>
     """
-    def fixup(match):
-        """
-        Replace one matched HTML entity with the character it represents,
-        if possible.
-        """
-        text = match.group(0)
-        if text[:2] == "&#":
-            # character reference
-            try:
-                if text[:3] == "&#x":
-                    codept = int(text[3:-1], 16)
-                else:
-                    codept = int(text[2:-1])
-                if 0x80 <= codept < 0xa0:
-                    # Decode this range of characters as Windows-1252, as Web
-                    # browsers do in practice.
-                    return unichr(codept).encode('latin-1').decode('sloppy-windows-1252')
-                else:
-                    return unichr(codept)
-            except ValueError:
-                pass
-        else:
-            # named entity
-            try:
-                text = entities[text[1:]]
-            except KeyError:
-                pass
-        return text  # leave as is
-    return HTML_ENTITY_RE.sub(fixup, text)
+    return HTML_ENTITY_RE.sub(_unescape_fixup, text)
 
 
 ANSI_RE = re.compile('\033\\[((?:\\d|;)*)([a-zA-Z])')
+
 
 def remove_terminal_escapes(text):
     r"""
@@ -463,7 +462,7 @@ def convert_surrogate_pair(match):
     """
     pair = match.group(0)
     codept = 0x10000 + (ord(pair[0]) - 0xd800) * 0x400 + (ord(pair[1]) - 0xdc00)
-    return unichr(codept)
+    return chr(codept)
 
 
 def fix_surrogates(text):
@@ -471,8 +470,8 @@ def fix_surrogates(text):
     Replace 16-bit surrogate codepoints with the characters they represent
     (when properly paired), or with \ufffd otherwise.
 
-        >>> high_surrogate = unichr(0xd83d)
-        >>> low_surrogate = unichr(0xdca9)
+        >>> high_surrogate = chr(0xd83d)
+        >>> low_surrogate = chr(0xdca9)
         >>> print(fix_surrogates(high_surrogate + low_surrogate))
         💩
         >>> print(fix_surrogates(low_surrogate + high_surrogate))
@@ -525,10 +524,10 @@ def remove_bom(text):
     Remove a byte-order mark that was accidentally decoded as if it were part
     of the text.
 
-    >>> print(remove_bom("\ufeffWhere do you want to go today?"))
+    >>> print(remove_bom(chr(0xfeff) + "Where do you want to go today?"))
     Where do you want to go today?
     """
-    return text.lstrip(unichr(0xfeff))
+    return text.lstrip(chr(0xfeff))
 
 
 # Define a regex to match valid escape sequences in Python string literals.

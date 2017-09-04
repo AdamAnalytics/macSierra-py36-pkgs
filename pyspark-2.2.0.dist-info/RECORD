@@ -539,10 +539,10 @@ pyspark/streaming/util.py,sha256=5si0jOGFRoDTulgNZrjao3THRq_tkNMh0yJ-EF6cUTg,502
 ../../../bin/sparkR.cmd,sha256=pT_TeCHnpFEPV-D6ZzserdmtpSZ2sbDcEuQdP-76xQI,1000
 ../../../bin/sparkR2.cmd,sha256=aRwwPG_Gw80HDXEeWMJbPQO7d9PSILwPTWcP26dj_uA,1014
 pyspark-2.2.0.dist-info/DESCRIPTION.rst,sha256=j76e5RBhbcLEKNpGqv6wIEjmovqMdMciUbz4_z1hJ6o,50
-pyspark-2.2.0.dist-info/METADATA,sha256=NQGwfyc-qGGuPbQWSOf97twvFAQQ6X0cPgO81K5T_Iw,1006
+pyspark-2.2.0.dist-info/METADATA,sha256=ga7V-OLoywwWiJYqIaIG-xeXlVDWvUN7oPCIDIPo1JY,1040
 pyspark-2.2.0.dist-info/RECORD,,
 pyspark-2.2.0.dist-info/WHEEL,sha256=o2k-Qa-RMNIJmUdIc7KU6VWR_ErNRbWNlxDIpl7lm34,110
-pyspark-2.2.0.dist-info/metadata.json,sha256=0_XFJ20ZJ8Q4OqLmBiIi8fVCeDvWJK1amaSMJSP77o4,1094
+pyspark-2.2.0.dist-info/metadata.json,sha256=McvKhUMx_cRhSr_XdF6NsIJreNuBtIYrWQ54Q7tdbbk,1133
 pyspark-2.2.0.dist-info/top_level.txt,sha256=SelNkFL6MfEvGI1YHaVYG0YvADraFnxTTDv5YUJX7QU,8
 pyspark-2.2.0.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
 pyspark/__pycache__/__init__.cpython-36.pyc,,

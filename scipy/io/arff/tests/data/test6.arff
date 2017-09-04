@@ -1,12 +1,1 @@
-@RELATION test6
-
-@ATTRIBUTE attr0	REAL
-@ATTRIBUTE attr1 	REAL
-@ATTRIBUTE attr2 	REAL
-@ATTRIBUTE attr3	REAL
-@ATTRIBUTE class 	{C}
-
-@DATA
-0.1, 0.2, 0.3, 0.4,C
--0.1, -0.2, -0.3, -0.4,C
-1, 2, 3, 4,C
+../../../../../../../../Cellar/scipy/0.19.1_1/lib/python3.6/site-packages/scipy/io/arff/tests/data/test6.arff

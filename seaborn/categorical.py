@@ -4,7 +4,6 @@ import colorsys
 import numpy as np
 from scipy import stats
 import pandas as pd
-from pandas.core.series import remove_na
 import matplotlib as mpl
 from matplotlib.collections import PatchCollection
 import matplotlib.patches as Patches
@@ -15,9 +14,9 @@ from .external.six import string_types
 from .external.six.moves import range
 
 from . import utils
-from .utils import iqr, categorical_order
+from .utils import iqr, categorical_order, remove_na
 from .algorithms import bootstrap
-from .palettes import color_palette, husl_palette, light_palette
+from .palettes import color_palette, husl_palette, light_palette, dark_palette
 from .axisgrid import FacetGrid, _facet_docs
 
 
@@ -28,6 +27,7 @@ __all__ = ["boxplot", "violinplot", "stripplot", "swarmplot", "lvplot",
 class _CategoricalPlotter(object):
 
     width = .8
+    default_palette = "light"
 
     def establish_variables(self, x=None, y=None, hue=None, data=None,
                             orient=None, order=None, hue_order=None,
@@ -281,7 +281,12 @@ class _CategoricalPlotter(object):
             if self.hue_names is None:
                 colors = [color] * n_colors
             else:
-                colors = light_palette(color, n_colors)
+                if self.default_palette == "light":
+                    colors = light_palette(color, n_colors)
+                elif self.default_palette == "dark":
+                    colors = dark_palette(color, n_colors)
+                else:
+                    raise RuntimeError("No default palette specified")
         else:
 
             # Let `palette` be a dict mapping level to color
@@ -317,7 +322,10 @@ class _CategoricalPlotter(object):
         def is_categorical(s):
             try:
                 # Correct way, but doesnt exist in older Pandas
-                return pd.core.common.is_categorical_dtype(s)
+                try:
+                    return pd.api.types.is_categorical_dtype(s)
+                except AttributeError:
+                    return pd.core.common.is_categorical_dtype(s)
             except AttributeError:
                 # Also works, but feels hackier
                 return str(s.dtype) == "categorical"
@@ -1077,6 +1085,8 @@ class _ViolinPlotter(_CategoricalPlotter):
 
 class _CategoricalScatterPlotter(_CategoricalPlotter):
 
+    default_palette = "dark"
+
     @property
     def point_colors(self):
         """Return a color for each scatter point based on group and hue."""
@@ -1644,6 +1654,9 @@ class _BarPlotter(_CategoricalStatPlotter):
 
 
 class _PointPlotter(_CategoricalStatPlotter):
+
+    default_palette = "dark"
+
     """Show point estimates and confidence intervals with (joined) points."""
     def __init__(self, x, y, hue, data, order, hue_order,
                  estimator, ci, n_boot, units,
@@ -1720,16 +1733,17 @@ class _PointPlotter(_CategoricalStatPlotter):
             # Draw the confidence intervals
             self.draw_confints(ax, pointpos, self.confint, self.colors,
                                self.errwidth, self.capsize)
+
             # Draw the estimate points
             marker = self.markers[0]
+            hex_colors = [mpl.colors.rgb2hex(c) for c in self.colors]
             if self.orient == "h":
-                ax.scatter(self.statistic, pointpos,
-                           linewidth=mew, marker=marker, s=markersize,
-                           c=self.colors, edgecolor=self.colors)
+                x, y = self.statistic, pointpos
             else:
-                ax.scatter(pointpos, self.statistic,
-                           linewidth=mew, marker=marker, s=markersize,
-                           c=self.colors, edgecolor=self.colors)
+                x, y = pointpos, self.statistic
+            ax.scatter(x, y,
+                       linewidth=mew, marker=marker, s=markersize,
+                       c=hex_colors, edgecolor=hex_colors)
 
         else:
 
@@ -1763,17 +1777,23 @@ class _PointPlotter(_CategoricalStatPlotter):
                                        zorder=z)
 
                 # Draw the estimate points
+                n_points = len(remove_na(offpos))
                 marker = self.markers[j]
-                if self.orient == "h":
-                    ax.scatter(statistic, offpos, label=hue_level,
-                               c=[self.colors[j]] * len(offpos),
-                               linewidth=mew, marker=marker, s=markersize,
-                               edgecolor=self.colors[j], zorder=z)
+                hex_color = mpl.colors.rgb2hex(self.colors[j])
+                if n_points:
+                    point_colors = [hex_color for _ in range(n_points)]
                 else:
-                    ax.scatter(offpos, statistic, label=hue_level,
-                               c=[self.colors[j]] * len(offpos),
-                               linewidth=mew, marker=marker, s=markersize,
-                               edgecolor=self.colors[j], zorder=z)
+                    point_colors = hex_color
+                if self.orient == "h":
+                    x, y = statistic, offpos
+                else:
+                    x, y = offpos, statistic
+                if not len(remove_na(statistic)):
+                    x, y = [], []
+                ax.scatter(x, y, label=hue_level,
+                           c=point_colors, edgecolor=point_colors,
+                           linewidth=mew, marker=marker, s=markersize,
+                           zorder=z)
 
     def plot(self, ax):
         """Make the plot."""
@@ -2080,7 +2100,7 @@ _categorical_docs = dict(
     ci : float or "sd" or None, optional
         Size of confidence intervals to draw around estimated values.  If
         "sd", skip bootstrapping and draw the standard deviation of the
-        observerations. If ``None``, no bootstrapping will be performed, and
+        observations. If ``None``, no bootstrapping will be performed, and
         error bars will not be drawn.
     n_boot : int, optional
         Number of bootstrap iterations to use when computing confidence
@@ -2098,8 +2118,7 @@ _categorical_docs = dict(
     """),
     color=dedent("""\
     color : matplotlib color, optional
-        Color for all of the elements, or seed for :func:`light_palette` when
-        using hue nesting.\
+        Color for all of the elements, or seed for a gradient palette.
     """),
     palette=dedent("""\
     palette : palette name, list, or dict, optional
@@ -2980,10 +2999,10 @@ barplot.__doc__ = dedent("""\
     {saturation}
     errcolor : matplotlib color
         Color for the lines that represent the confidence interval.
-    {ax_in}
     {errwidth}
     {capsize}
     {dodge}
+    {ax_in}
     kwargs : key, value mappings
         Other keyword arguments are passed through to ``plt.bar`` at draw
         time.

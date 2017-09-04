@@ -32,13 +32,13 @@ def e_add_ranks(id_node_dict, leaf_id):
 
 def e_create_layers(id_node_dict, rank, curr):
     node_list = [[] for x in range(rank)]
-    for k in id_node_dict.keys():
+    for k in list(id_node_dict.keys()):
         n = id_node_dict[k]
         # print n.TRank
         node_list[n.TRank].append(n)
     node_proper = [[] for x in range(rank)]
     inds_proper = [[] for x in range(rank)]
-    inds = range(len(curr))
+    inds = list(range(len(curr)))
     curr = [id_node_dict[c] for c in curr]
     while(curr and inds):
         next_curr = []
@@ -65,7 +65,7 @@ def e_finish_layers(layers):
 	new_layers = [sorted(copy.deepcopy(lst), (lambda x, y: -1 if isinstance(x, SumNode) and isinstance(y, Leaf) else 1)) for lst in layers]
 	layer_ids = [id_map(x) for x in new_layers];
 	# print reduce(lambda r, f: r+f.children, new_layers[4], [])
-	switches = [[layer_ids[x[0]].get(y.id) for y in x[1]] for x in zip(range(len(layers)), layers)]
+	switches = [[layer_ids[x[0]].get(y.id) for y in x[1]] for x in zip(list(range(len(layers))), layers)]
 	return new_layers, switches
 
 def e_make_pos_dict(node_layers):
@@ -85,7 +85,7 @@ def e_load(fname, random_weights=False, ctype="b"):
     if random_weights:
         for id in sum_ids:
             summ = sum(id_node_dict[id].weights)
-            id_node_dict[id].weights = map(lambda x: x/summ, id_node_dict[id].weights)
+            id_node_dict[id].weights = [x/summ for x in id_node_dict[id].weights]
     #determine all the ranks for each node
     top ,rank, id_node_dict = e_add_ranks(id_node_dict, leaf_ids)
     #turn them all into layers
@@ -102,7 +102,7 @@ def e_build_random_net(bf, inp_size, out, ctype='b', depth=6):
     count = 0
     total_net = []
     init_node = SumNode(str(count + 1))
-    network, count = generate_children([], init_node, range(inp_size), bf, ctype=ctype, max_depth=depth)
+    network, count = generate_children([], init_node, list(range(inp_size)), bf, ctype=ctype, max_depth=depth)
     extras = []
     for i in range(1, out):
         node = SumNode(str(count + i))
@@ -126,13 +126,13 @@ def e_build_random_net(bf, inp_size, out, ctype='b', depth=6):
 
     shuffle_layers[-2] *= out
     temp = []
-    for i in xrange(out):
+    for i in range(out):
         temp += [x + i for x in inds[-2]]
     inds[-2] = temp
 
     #getting the ordering right
     leaf_id_order, input_layers, input_orders = clean_up_inputs(node_layers)
 
-    print "generated a network of size", len(id_node_dict), "with", len(node_layers) ,"layers."
+    print("generated a network of size", len(id_node_dict), "with", len(node_layers) ,"layers.")
 
     return pos_dict, id_node_dict, node_layers, leaf_id_order, input_layers, input_orders, shuffle_layers, inds

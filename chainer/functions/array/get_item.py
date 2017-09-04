@@ -37,16 +37,13 @@ class GetItem(function.Function):
         type_check.expect(in_types[0].ndim >= valid_slice)
 
     def forward(self, xs):
-        self.retain_inputs(())
         ary = xs[0]
-        self._in_shape = ary.shape
-        self._in_dtype = ary.dtype
         return utils.force_array(ary[self.slices]),
 
     def backward(self, xs, gys):
-        xp = cuda.get_array_module(*gys)
+        xp = cuda.get_array_module(*xs)
         gy = gys[0]
-        gx = xp.zeros(self._in_shape, self._in_dtype)
+        gx = xp.zeros_like(xs[0])
         if xp is numpy:
             numpy.add.at(gx, self.slices, gy)
         else:

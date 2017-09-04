@@ -1,6 +1,6 @@
 from six import moves
 
-from chainer import cuda
+import chainer
 from chainer.utils import conv_nd_kernel
 
 
@@ -25,7 +25,7 @@ class PoolingNDKernelForward(object):
         raise NotImplementedError()
 
     @classmethod
-    @cuda.memoize()
+    @chainer.cuda.memoize()
     def generate(klass, ndim):
         return klass()._generate(ndim)
 
@@ -174,7 +174,7 @@ class PoolingNDKernelBackward(object):
         raise NotImplementedError()
 
     @classmethod
-    @cuda.memoize()
+    @chainer.cuda.memoize()
     def generate(klass, ndim):
         return klass()._generate(ndim)
 

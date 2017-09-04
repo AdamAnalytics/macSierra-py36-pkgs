@@ -312,7 +312,7 @@ class _HeatMapper(object):
         ytl = ax.set_yticklabels(yticklabels, rotation="vertical")
 
         # Possibly rotate them if they overlap
-        plt.draw()
+        ax.figure.draw(ax.figure.canvas.get_renderer())
         if axis_ticklabels_overlap(xtl):
             plt.setp(xtl, rotation="vertical")
         if axis_ticklabels_overlap(ytl):
@@ -697,7 +697,7 @@ class _DendrogramPlotter(object):
         ytl = ax.set_yticklabels(self.yticklabels, rotation='vertical')
 
         # Force a draw of the plot to avoid matplotlib window error
-        plt.draw()
+        ax.figure.draw(ax.figure.canvas.get_renderer())
         if len(ytl) > 0 and axis_ticklabels_overlap(ytl):
             plt.setp(ytl, rotation="horizontal")
         if len(xtl) > 0 and axis_ticklabels_overlap(xtl):
@@ -1048,6 +1048,7 @@ class ClusterGrid(Grid):
         kws = kws.copy()
         kws.pop('cmap', None)
         kws.pop('center', None)
+        kws.pop('annot', None)
         kws.pop('vmin', None)
         kws.pop('vmax', None)
         kws.pop('robust', None)
@@ -1115,14 +1116,13 @@ class ClusterGrid(Grid):
                 cbar_kws=colorbar_kws, mask=self.mask,
                 xticklabels=xtl, yticklabels=ytl, **kws)
 
-        xtl_rot = self.ax_heatmap.get_xticklabels()[0].get_rotation()
-        ytl_rot = self.ax_heatmap.get_yticklabels()[0].get_rotation()
-
+        ytl = self.ax_heatmap.get_yticklabels()
+        ytl_rot = None if not ytl else ytl[0].get_rotation()
         self.ax_heatmap.yaxis.set_ticks_position('right')
         self.ax_heatmap.yaxis.set_label_position('right')
-
-        plt.setp(self.ax_heatmap.get_xticklabels(), rotation=xtl_rot)
-        plt.setp(self.ax_heatmap.get_yticklabels(), rotation=ytl_rot)
+        if ytl_rot is not None:
+            ytl = self.ax_heatmap.get_yticklabels()
+            plt.setp(ytl, rotation=ytl_rot)
 
     def plot(self, metric, method, colorbar_kws, row_cluster, col_cluster,
              row_linkage, col_linkage, **kws):

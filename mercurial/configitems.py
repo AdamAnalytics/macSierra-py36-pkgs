@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import functools
 
@@ -15,7 +15,7 @@ from . import (
 
 def loadconfigtable(ui, extname, configtable):
     """update config item known to the ui with the extension ones"""
-    for section, items in configtable.items():
+    for section, items in list(configtable.items()):
         knownitems = ui._knownconfig.setdefault(section, {})
         knownkeys = set(knownitems)
         newkeys = set(items)
@@ -97,6 +97,12 @@ coreconfigitem('color', 'pagermode',
 coreconfigitem('commands', 'status.relative',
     default=False,
 )
+coreconfigitem('commands', 'status.skipstates',
+    default=[],
+)
+coreconfigitem('commands', 'status.verbose',
+    default=False,
+)
 coreconfigitem('commands', 'update.requiredest',
     default=False,
 )
@@ -175,14 +181,17 @@ coreconfigitem('experimental', 'disablecopytrace',
 coreconfigitem('experimental', 'editortmpinhg',
     default=False,
 )
-coreconfigitem('experimental', 'evolution',
+coreconfigitem('experimental', 'stabilization',
     default=list,
+    alias=[('experimental', 'evolution')],
 )
-coreconfigitem('experimental', 'evolution.bundle-obsmarker',
+coreconfigitem('experimental', 'stabilization.bundle-obsmarker',
     default=False,
+    alias=[('experimental', 'evolution.bundle-obsmarker')],
 )
-coreconfigitem('experimental', 'evolution.track-operation',
+coreconfigitem('experimental', 'stabilization.track-operation',
     default=False,
+    alias=[('experimental', 'evolution.track-operation')]
 )
 coreconfigitem('experimental', 'exportableenviron',
     default=list,
@@ -351,6 +360,9 @@ coreconfigitem('progress', 'refresh',
 )
 coreconfigitem('progress', 'width',
     default=dynamicdefault,
+)
+coreconfigitem('push', 'pushvars.server',
+    default=False,
 )
 coreconfigitem('server', 'bundle1',
     default=True,

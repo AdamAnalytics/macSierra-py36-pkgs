@@ -8,7 +8,7 @@
     :license: New BSD License, see LICENSE for more details
 """
 import pyexcel_io.manager as manager
-from pyexcel_io._compact import OrderedDict, isstream
+from pyexcel_io._compact import OrderedDict, isstream, PY2
 from .constants import (
     MESSAGE_ERROR_03,
     MESSAGE_WRONG_IO_INSTANCE
@@ -85,6 +85,25 @@ class BookReader(RWInterface):
         keywords are passed on to individual readers
         """
         if isstream(file_stream):
+            if PY2:
+                if hasattr(file_stream, 'seek'):
+                    file_stream.seek(0)
+                else:
+                    # python 2
+                    # Hei zipfile in odfpy would do a seek
+                    # but stream from urlib cannot do seek
+                    file_stream = _convert_content_to_stream(
+                        file_stream.read(), self._file_type)
+            else:
+                from io import UnsupportedOperation
+
+                try:
+                    file_stream.seek(0)
+                except UnsupportedOperation:
+                    # python 3
+                    file_stream = _convert_content_to_stream(
+                        file_stream.read(), self._file_type)
+
             self._file_stream = file_stream
             self._keywords = keywords
         else:

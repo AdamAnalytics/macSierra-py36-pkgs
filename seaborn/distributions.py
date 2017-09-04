@@ -26,6 +26,8 @@ def _freedman_diaconis_bins(a):
     """Calculate number of hist bins using Freedman-Diaconis rule."""
     # From http://stats.stackexchange.com/questions/798/
     a = np.asarray(a)
+    if len(a) < 2:
+        return 1
     h = 2 * iqr(a) / (len(a) ** (1 / 3))
     # fall back to sqrt(a) bins if iqr is 0
     if h == 0:
@@ -168,7 +170,9 @@ def distplot(a, bins=None, hist=True, kde=True, rug=False, fit=None,
             label_ax = True
 
     # Make a a 1-d array
-    a = np.asarray(a).squeeze()
+    a = np.asarray(a)
+    if a.ndim > 1:
+        a = a.squeeze()
 
     # Decide if the hist is normed
     norm_hist = norm_hist or kde or (fit is not None)
@@ -298,25 +302,33 @@ def _univariate_kdeplot(data, shade, vertical, kernel, bw, gridsize, cut,
     label = "_nolegend_" if label is None else label
 
     # Use the active color cycle to find the plot color
+    facecolor = kwargs.pop("facecolor", None)
     line, = ax.plot(x, y, **kwargs)
     color = line.get_color()
     line.remove()
     kwargs.pop("color", None)
+    facecolor = color if facecolor is None else facecolor
 
     # Draw the KDE plot and, optionally, shade
     ax.plot(x, y, color=color, label=label, **kwargs)
-    alpha = kwargs.get("alpha", 0.25)
+    shade_kws = dict(
+        facecolor=facecolor,
+        alpha=kwargs.get("alpha", 0.25),
+        clip_on=kwargs.get("clip_on", True),
+        zorder=kwargs.get("zorder", 1),
+        )
     if shade:
         if vertical:
-            ax.fill_betweenx(y, 0, x, facecolor=color, alpha=alpha)
+            ax.fill_betweenx(y, 0, x, **shade_kws)
         else:
-            ax.fill_between(x, 0, y, facecolor=color, alpha=alpha)
+            ax.fill_between(x, 0, y, **shade_kws)
 
     # Set the density axis minimum to 0
+    xmargin, ymargin = ax.margins()
     if vertical:
-        ax.set_xlim(0, None)
+        ax.set_xlim(0, max(ax.get_xlim()[1], (1 + xmargin) * x.max()))
     else:
-        ax.set_ylim(0, None)
+        ax.set_ylim(0, max(ax.get_ylim()[1], (1 + ymargin) * y.max()))
 
     # Draw the legend here
     if legend:
@@ -600,6 +612,9 @@ def kdeplot(data, data2=None, shade=False, vertical=False, kernel="gau",
 
     if isinstance(data, list):
         data = np.asarray(data)
+
+    if len(data) == 0:
+        return ax
 
     data = data.astype(np.float64)
     if data2 is not None:

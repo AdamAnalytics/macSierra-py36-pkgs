@@ -10,7 +10,7 @@ class Data:
     def load_data_from_file(self, fname, cont=False):
         D = open(fname, 'r')
         Data = []
-        print fname
+        print(fname)
         i = 'lol'
         while (i != ''):
             i = D.readline()

@@ -1,7 +1,6 @@
 import chainer
 from chainer.functions.math import bias
 from chainer import link
-from chainer import variable
 
 
 class Bias(link.Link):
@@ -33,8 +32,8 @@ class Bias(link.Link):
 
         # Add b parameter if given.
         if shape is not None:
-            with self.init_scope():
-                self.b = variable.Parameter(0, shape)
+            self.add_param('b', shape)
+            self.b.data.fill(0)
 
         self.axis = axis
 

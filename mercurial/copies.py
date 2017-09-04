@@ -5,11 +5,12 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import heapq
 
 from . import (
+    match as matchmod,
     node,
     pathutil,
     scmutil,
@@ -104,7 +105,7 @@ def _findlimit(repo, a, b):
 def _chain(src, dst, a, b):
     '''chain two sets of copies a->b'''
     t = a.copy()
-    for k, v in b.iteritems():
+    for k, v in b.items():
         if v in t:
             # found a chain
             if t[v] != k:
@@ -118,7 +119,7 @@ def _chain(src, dst, a, b):
             t[k] = v
 
     # remove criss-crossed copies
-    for k, v in t.items():
+    for k, v in list(t.items()):
         if k in src and v in dst:
             del t[k]
 
@@ -137,7 +138,7 @@ def _tracefile(fctx, am, limit=-1):
 def _dirstatecopies(d):
     ds = d._repo.dirstate
     c = ds.copies().copy()
-    for k in c.keys():
+    for k in list(c.keys()):
         if ds[k] not in 'anm':
             del c[k]
     return c
@@ -182,8 +183,9 @@ def _forwardcopies(a, b, match=None):
     # optimization, since the ctx.files() for a merge commit is not correct for
     # this comparison.
     forwardmissingmatch = match
-    if not match and b.p1() == a and b.p2().node() == node.nullid:
-        forwardmissingmatch = scmutil.matchfiles(a._repo, b.files())
+    if b.p1() == a and b.p2().node() == node.nullid:
+        filesmatcher = scmutil.matchfiles(a._repo, b.files())
+        forwardmissingmatch = matchmod.intersectmatchers(match, filesmatcher)
     missing = _computeforwardmissing(a, b, match=forwardmissingmatch)
 
     ancestrycontext = a._repo.changelog.ancestors([b.rev()], inclusive=True)
@@ -209,7 +211,7 @@ def _backwardrenames(a, b):
     # arbitrarily pick one of the renames.
     f = _forwardcopies(b, a)
     r = {}
-    for k, v in sorted(f.iteritems()):
+    for k, v in sorted(f.items()):
         # remove copies
         if v in a:
             continue
@@ -304,6 +306,28 @@ def _combinecopies(copyfrom, copyto, finalcopy, diverge, incompletediverge):
 
 def mergecopies(repo, c1, c2, base):
     """
+    The basic algorithm for copytracing. Copytracing is used in commands like
+    rebase, merge, unshelve, etc to merge files that were moved/ copied in one
+    merge parent and modified in another. For example:
+
+    o          ---> 4 another commit
+    |
+    |   o      ---> 3 commit that modifies a.txt
+    |  /
+    o /        ---> 2 commit that moves a.txt to b.txt
+    |/
+    o          ---> 1 merge base
+
+    If we try to rebase revision 3 on revision 4, since there is no a.txt in
+    revision 4, and if user have copytrace disabled, we prints the following
+    message:
+
+    ```other changed <file> which local deleted```
+
+    If copytrace is enabled, this function finds all the new files that were
+    added from merge base up to the top commit (here 4), and for each file it
+    checks if this file was copied from another file (a.txt in the above case).
+
     Find moves and copies between context c1 and c2 that are relevant
     for merging. 'base' will be used as the merge base.
 
@@ -357,7 +381,7 @@ def mergecopies(repo, c1, c2, base):
     # if we have a dirty endpoint, we need to trigger graft logic, and also
     # keep track of which endpoint is dirty
     dirtyc1 = not (base == _c1 or base.descendant(_c1))
-    dirtyc2 = not (base== _c2 or base.descendant(_c2))
+    dirtyc2 = not (base == _c2 or base.descendant(_c2))
     graft = dirtyc1 or dirtyc2
     tca = base
     if graft:
@@ -434,7 +458,7 @@ def mergecopies(repo, c1, c2, base):
     renamedelete = {}
     renamedeleteset = set()
     divergeset = set()
-    for of, fl in diverge.items():
+    for of, fl in list(diverge.items()):
         if len(fl) == 1 or of in c1 or of in c2:
             del diverge[of] # not actually divergent, or not a rename
             if of not in c1 and of not in c2:
@@ -486,7 +510,7 @@ def mergecopies(repo, c1, c2, base):
         if ic[0] in (m1 if dirtyc1 else m2):
             # backed-out rename on one side, but watch out for deleted files
             bothdiverge[f] = ic
-    for of, fl in bothdiverge.items():
+    for of, fl in list(bothdiverge.items()):
         if len(fl) == 2 and fl[0] == fl[1]:
             copy[fl[0]] = of # not actually divergent, just matching renames
 
@@ -520,7 +544,7 @@ def mergecopies(repo, c1, c2, base):
 
     # examine each file copy for a potential directory move, which is
     # when all the files in a directory are moved to a new directory
-    for dst, src in fullcopy.iteritems():
+    for dst, src in fullcopy.items():
         dsrc, ddst = pathutil.dirname(src), pathutil.dirname(dst)
         if dsrc in invalid:
             # already seen to be uninteresting
@@ -613,8 +637,8 @@ def _checkcopies(srcctx, dstctx, f, base, tca, remotebase, limit, data):
     limit = the rev number to not search beyond
     data = dictionary of dictionary to store copy data. (see mergecopies)
 
-    note: limit is only an optimization, and there is no guarantee that
-    irrelevant revisions will not be limited
+    note: limit is only an optimization, and provides no guarantee that
+    irrelevant revisions will not be visited
     there is no easy way to make this algorithm stop in a guaranteed way
     once it "goes behind a certain revision".
     """
@@ -710,7 +734,7 @@ def duplicatecopies(repo, rev, fromrev, skiprev=None):
         # of the function is much faster (and is required for carrying copy
         # metadata across the rebase anyway).
         exclude = pathcopies(repo[fromrev], repo[skiprev])
-    for dst, src in pathcopies(repo[fromrev], repo[rev]).iteritems():
+    for dst, src in pathcopies(repo[fromrev], repo[rev]).items():
         # copies.pathcopies returns backward renames, so dst might not
         # actually be in the dirstate
         if dst in exclude:

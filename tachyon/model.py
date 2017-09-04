@@ -143,7 +143,7 @@ class Model:
     def save(self, fname):
         nodes = []
         edges = []
-        for v in self.id_node_dict.values():
+        for v in list(self.id_node_dict.values()):
             if not v.alive: continue
             nodes.append(v.serialize_node())
             edges += v.serialize_edges()
@@ -161,7 +161,7 @@ class Model:
         f.close()
         
     def clean_nodes(self, thresh=0.05):
-        for v in self.id_node_dict.values():
+        for v in list(self.id_node_dict.values()):
             if not v.alive: continue
             curr = v.dead_children(thresh)
             while len(curr) > 0:
@@ -193,26 +193,26 @@ class Model:
                     i = 0;
                     j = 0;
                     while i < len(self.node_layers[L]) and isinstance(self.node_layers[L][i], SumNode):
-                        ws += map(lambda x: float(x), self.node_layers[L][i].weights);
+                        ws += [float(x) for x in self.node_layers[L][i].weights];
 
                         j += len(self.node_layers[L][i].weights)
                         i += 1;
                 weights.append(tf.Variable(ws, dtype=tf.float64))
             self.weights = weights;
             self.reverse_shuffle = self.build_reverse_shuffle(self.shuffle)
-            self.inds = map(lambda x: tf.Variable(x), [input_inds]+self.inds)
-            self.shuffle = map(lambda x: tf.Variable(x), self.shuffle)
-            self.reverse_shuffle = map(lambda x: tf.Variable(x), self.reverse_shuffle)
+            self.inds = [tf.Variable(x) for x in [input_inds]+self.inds]
+            self.shuffle = [tf.Variable(x) for x in self.shuffle]
+            self.reverse_shuffle = [tf.Variable(x) for x in self.reverse_shuffle]
         # self.input_layers = map(lambda x: [0] + tf.constant(x), self.input_layers)
 
     def get_norm_weights(self):
-	weights = filter(lambda x: x != None, self.norm_weights);
+	weights = [x for x in self.norm_weights if x != None];
 	return self.session.run(weights);
 
     def normalize_weights(self):
-        weights = filter(lambda x: x != None, self.norm_weights)
+        weights = [x for x in self.norm_weights if x != None]
         new_weights = self.session.run(weights, feed_dict={self.conz: [0.8]});
-        old_weights = filter(lambda x: x.get_shape()[0] > 0, self.weights)
+        old_weights = [x for x in self.weights if x.get_shape()[0] > 0]
         for w, n in zip(old_weights, new_weights):
            # print w.get_shape()
            # print n.shape
@@ -331,7 +331,7 @@ class Model:
             splits = []
             self.num = tf.placeholder(shape=(None, len(self.node_layers[-1])), dtype=tf.float64)
             curr = self.num
-            for i in reversed(range(len(self.node_layers[1:]))):
+            for i in reversed(list(range(len(self.node_layers[1:])))):
                 L = i+1
                 if self.weights[L].get_shape()[0] == 0: #product node
                     curr = tf.transpose(tf.gather(tf.transpose(curr), self.inds[L], name="myprodgather"))
@@ -372,7 +372,7 @@ class Model:
                 for i in range(len(update)):
                     updates[i] += update[i]
         a=0
-        weights = filter(lambda x: x.get_shape()[0] > 0, self.weights)
+        weights = [x for x in self.weights if x.get_shape()[0] > 0]
         updates = list(reversed(updates))
         for i in range(len(weights)): #apply updates
             if self.node_layers[0][0].t == 'c' and i == 0:
@@ -389,7 +389,7 @@ class Model:
         self.normalize_weights()       
 
     def countss(self):
-        weights = filter(lambda x: x.get_shape()[0] != 0, self.weights)
+        weights = [x for x in self.weights if x.get_shape()[0] != 0]
         with tf.name_scope("Counting"):
             maxed_out = []
             val = tf.constant(0.51, dtype=tf.float64)
@@ -409,7 +409,7 @@ class Model:
             self.num2 = tf.placeholder(shape=(None, len(self.node_layers[-1])), dtype=tf.float64)
             curr = self.num2
 
-            for i in reversed(range(len(self.node_layers[1:]))):
+            for i in reversed(list(range(len(self.node_layers[1:])))):
                 L = i+1
                 if self.weights[L].get_shape()[0] == 0: #product node
                     curr = tf.transpose(tf.gather(tf.transpose(curr), self.inds[L], name="myprodgather"))
@@ -458,7 +458,7 @@ class Model:
                     updates[i] += update[i]
         # print updates
         a=0
-        weights = filter(lambda x: x.get_shape()[0] > 0, self.weights)
+        weights = [x for x in self.weights if x.get_shape()[0] > 0]
         updates = list(reversed(updates))
         for i in range(len(weights)):
             if self.node_layers[0][0].t == 'c' and i == 0:

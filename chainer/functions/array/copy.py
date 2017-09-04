@@ -16,16 +16,12 @@ class Copy(function.Function):
         )
 
     def forward_cpu(self, x):
-        self.retain_inputs(())
-        self._in_device = cuda.get_device_from_array(x[0])
         if self.out_device == -1:
             return x[0].copy(),
         else:
             return cuda.to_gpu(x[0], device=self.out_device),
 
     def forward_gpu(self, x):
-        self.retain_inputs(())
-        self._in_device = cuda.get_device_from_array(x[0])
         if self.out_device == -1:
             return cuda.to_cpu(x[0]),
         else:
@@ -34,7 +30,7 @@ class Copy(function.Function):
     def backward(self, inputs, grad_outputs):
         # In this function, `grad_outputs` contains cuda arrays even when
         # `inputs` only contains numpy arrays.
-        if self._in_device.id != -1:
+        if isinstance(inputs[0], cuda.ndarray):
             return self.backward_gpu(inputs, grad_outputs)
         else:
             return self.backward_cpu(inputs, grad_outputs)
@@ -47,9 +43,10 @@ class Copy(function.Function):
 
     def backward_gpu(self, x, gy):
         if self.out_device == -1:
-            return cuda.to_gpu(gy[0], device=self._in_device),
+            return cuda.to_gpu(gy[0], device=cuda.get_device_from_array(x[0])),
         else:
-            return cuda.copy(gy[0], out_device=self._in_device),
+            return cuda.copy(
+                gy[0], out_device=cuda.get_device_from_array(x[0])),
 
 
 def copy(x, dst):

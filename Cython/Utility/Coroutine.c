@@ -274,7 +274,7 @@ static CYTHON_INLINE PyObject *__Pyx_Coroutine_GetAsyncIter(PyObject *obj) {
     }
 #else
     // avoid C warning about 'unused function'
-    if (0) (void) __Pyx_PyObject_CallMethod0(obj, PYIDENT("__aiter__"));
+    if ((0)) (void) __Pyx_PyObject_CallMethod0(obj, PYIDENT("__aiter__"));
 #endif
 
     PyErr_Format(PyExc_TypeError, "'async for' requires an object with __aiter__ method, got %.100s",
@@ -1161,18 +1161,11 @@ static PyTypeObject __pyx_CoroutineAwaitType_type = {
 };
 
 static CYTHON_INLINE PyObject *__Pyx__Coroutine_await(PyObject *coroutine) {
-#if CYTHON_COMPILING_IN_CPYTHON
     __pyx_CoroutineAwaitObject *await = PyObject_GC_New(__pyx_CoroutineAwaitObject, __pyx_CoroutineAwaitType);
-#else
-    __pyx_CoroutineAwaitObject *await = (__pyx_CoroutineAwaitObject*)
-        __pyx_CoroutineAwaitType->tp_new(__pyx_CoroutineAwaitType, __pyx_empty_tuple, NULL);
-#endif
     if (unlikely(!await)) return NULL;
     Py_INCREF(coroutine);
     await->coroutine = coroutine;
-#if CYTHON_COMPILING_IN_CPYTHON
     PyObject_GC_Track(await);
-#endif
     return (PyObject*)await;
 }
 
@@ -1585,6 +1578,10 @@ static int __Pyx_patch_abc(void); /*proto*/
 //////////////////// PatchGeneratorABC ////////////////////
 //@requires: PatchModuleWithCoroutine
 
+#ifndef CYTHON_REGISTER_ABCS
+#define CYTHON_REGISTER_ABCS 1
+#endif
+
 #if defined(__Pyx_Generator_USED) || defined(__Pyx_Coroutine_USED)
 static PyObject* __Pyx_patch_abc_module(PyObject *module); /*proto*/
 static PyObject* __Pyx_patch_abc_module(PyObject *module) {
@@ -1607,7 +1604,7 @@ if _cython_coroutine_type is not None:
 static int __Pyx_patch_abc(void) {
 #if defined(__Pyx_Generator_USED) || defined(__Pyx_Coroutine_USED)
     static int abc_patched = 0;
-    if (!abc_patched) {
+    if (CYTHON_REGISTER_ABCS && !abc_patched) {
         PyObject *module;
         module = PyImport_ImportModule((PY_VERSION_HEX >= 0x03030000) ? "collections.abc" : "collections");
         if (!module) {
@@ -1637,7 +1634,7 @@ static int __Pyx_patch_abc(void) {
     }
 #else
     // avoid "unused" warning for __Pyx_Coroutine_patch_module()
-    if (0) __Pyx_Coroutine_patch_module(NULL, NULL);
+    if ((0)) __Pyx_Coroutine_patch_module(NULL, NULL);
 #endif
     return 0;
 }
@@ -1729,7 +1726,7 @@ asyncio_done:
         }
 #else
         // avoid "unused" warning for __Pyx_patch_inspect()
-        if (0) return __Pyx_patch_inspect(module);
+        if ((0)) return __Pyx_patch_inspect(module);
 #endif
     }
     return module;
@@ -1741,7 +1738,7 @@ ignore:
     }
 #else
     // avoid "unused" warning for __Pyx_Coroutine_patch_module()
-    if (0) return __Pyx_patch_inspect(__Pyx_Coroutine_patch_module(module, NULL));
+    if ((0)) return __Pyx_patch_inspect(__Pyx_Coroutine_patch_module(module, NULL));
 #endif
     return module;
 }
@@ -1776,7 +1773,7 @@ old_types.add(_cython_generator_type)
     }
 #else
     // avoid "unused" warning for __Pyx_Coroutine_patch_module()
-    if (0) return __Pyx_Coroutine_patch_module(module, NULL);
+    if ((0)) return __Pyx_Coroutine_patch_module(module, NULL);
 #endif
     return module;
 }

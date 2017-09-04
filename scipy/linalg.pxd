@@ -1,1 +1,1 @@
-from .linalg cimport cython_blas, cython_lapack
+../../../../Cellar/scipy/0.19.1_1/lib/python3.6/site-packages/scipy/linalg.pxd

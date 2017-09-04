@@ -14,7 +14,7 @@ For more information:
 https://mercurial-scm.org/wiki/RebaseExtension
 '''
 
-from __future__ import absolute_import
+
 
 import errno
 import os
@@ -60,13 +60,10 @@ templateopts = cmdutil.templateopts
 
 # Indicates that a revision needs to be rebased
 revtodo = -1
-nullmerge = -2
-revignored = -3
-# successor in rebase destination
-revprecursor = -4
-# plain prune (no successor)
-revpruned = -5
-revskipped = (revignored, revprecursor, revpruned)
+
+# legacy revstates no longer needed in current code
+# -2: nullmerge, -3: revignored, -4: revprecursor, -5: revpruned
+legacystates = {'-2', '-3', '-4', '-5'}
 
 cmdtable = {}
 command = registrar.command(cmdtable)
@@ -123,6 +120,16 @@ def _revsetdestrebase(repo, subset, x):
         sourceset = revset.getset(repo, smartset.fullreposet(repo), x)
     return subset & smartset.baseset([_destrebase(repo, sourceset)])
 
+def _ctxdesc(ctx):
+    """short description for a context"""
+    desc = '%d:%s "%s"' % (ctx.rev(), ctx,
+                           ctx.description().split('\n', 1)[0])
+    repo = ctx.repo()
+    names = repo.nodetags(ctx.node()) + repo.nodebookmarks(ctx.node())
+    if names:
+        desc += ' (%s)' % ' '.join(names)
+    return desc
+
 class rebaseruntime(object):
     """This class is a container for rebase runtime state"""
     def __init__(self, repo, ui, opts=None):
@@ -141,7 +148,6 @@ class rebaseruntime(object):
         self.activebookmark = None
         self.dest = None
         self.skipped = set()
-        self.destancestors = set()
 
         self.collapsef = opts.get('collapse', False)
         self.collapsemsg = cmdutil.logmessage(ui, opts)
@@ -177,7 +183,7 @@ class rebaseruntime(object):
         f.write('%d\n' % int(self.keepf))
         f.write('%d\n' % int(self.keepbranchesf))
         f.write('%s\n' % (self.activebookmark or ''))
-        for d, v in self.state.iteritems():
+        for d, v in self.state.items():
             oldrev = repo[d].hex()
             if v >= 0:
                 newrev = repo[v].hex()
@@ -222,9 +228,8 @@ class rebaseruntime(object):
                     activebookmark = l
                 else:
                     oldrev, newrev = l.split(':')
-                    if newrev in (str(nullmerge), str(revignored),
-                                  str(revprecursor), str(revpruned)):
-                        state[repo[oldrev].rev()] = int(newrev)
+                    if newrev in legacystates:
+                        continue
                     elif newrev == nullid:
                         state[repo[oldrev].rev()] = revtodo
                         # Legacy compat special case
@@ -273,12 +278,11 @@ class rebaseruntime(object):
         if not self.ui.configbool('experimental', 'rebaseskipobsolete',
                                   default=True):
             return
-        rebaseset = set(rebaserevs)
         obsoleteset = set(obsoleterevs)
         self.obsoletenotrebased = _computeobsoletenotrebased(self.repo,
                                     obsoleteset, dest)
         skippedset = set(self.obsoletenotrebased)
-        _checkobsrebase(self.repo, self.ui, obsoleteset, rebaseset, skippedset)
+        _checkobsrebase(self.repo, self.ui, obsoleteset, skippedset)
 
     def _prepareabortorcontinue(self, isabort):
         try:
@@ -298,9 +302,6 @@ class rebaseruntime(object):
         if isabort:
             return abort(self.repo, self.originalwd, self.dest,
                          self.state, activebookmark=self.activebookmark)
-
-        obsrevs = (r for r, st in self.state.items() if st == revprecursor)
-        self._handleskippingobsolete(self.state.keys(), obsrevs, self.dest)
 
     def _preparenewrebase(self, dest, rebaseset):
         if dest is None:
@@ -334,11 +335,9 @@ class rebaseruntime(object):
 
         (self.originalwd, self.dest, self.state) = result
         if self.collapsef:
-            self.destancestors = self.repo.changelog.ancestors(
-                                        [self.dest],
-                                        inclusive=True)
-            self.external = externalparent(self.repo, self.state,
-                                              self.destancestors)
+            destancestors = self.repo.changelog.ancestors([self.dest],
+                                                          inclusive=True)
+            self.external = externalparent(self.repo, self.state, destancestors)
 
         if dest.closesbranch() and not self.keepbranchesf:
             self.ui.status(_('reopening closed branch head %s\n') % dest)
@@ -358,11 +357,6 @@ class rebaseruntime(object):
                         raise error.Abort(_('cannot collapse multiple named '
                             'branches'))
 
-        # Rebase
-        if not self.destancestors:
-            self.destancestors = repo.changelog.ancestors([self.dest],
-                                                          inclusive=True)
-
         # Keep track of the active bookmarks in order to reset them later
         self.activebookmark = self.activebookmark or repo._activebookmark
         if self.activebookmark:
@@ -373,16 +367,12 @@ class rebaseruntime(object):
         self.storestatus()
 
         sortedrevs = repo.revs('sort(%ld, -topo)', self.state)
-        cands = [k for k, v in self.state.iteritems() if v == revtodo]
+        cands = [k for k, v in self.state.items() if v == revtodo]
         total = len(cands)
         pos = 0
         for rev in sortedrevs:
             ctx = repo[rev]
-            desc = '%d:%s "%s"' % (ctx.rev(), ctx,
-                                   ctx.description().split('\n', 1)[0])
-            names = repo.nodetags(ctx.node()) + repo.nodebookmarks(ctx.node())
-            if names:
-                desc += ' (%s)' % ' '.join(names)
+            desc = _ctxdesc(ctx)
             if self.state[rev] == rev:
                 ui.status(_('already rebased %s\n') % desc)
             elif self.state[rev] == revtodo:
@@ -390,10 +380,7 @@ class rebaseruntime(object):
                 ui.status(_('rebasing %s\n') % desc)
                 ui.progress(_("rebasing"), pos, ("%d:%s" % (rev, ctx)),
                             _('changesets'), total)
-                p1, p2, base = defineparents(repo, rev, self.dest,
-                                             self.state,
-                                             self.destancestors,
-                                             self.obsoletenotrebased)
+                p1, p2, base = defineparents(repo, rev, self.dest, self.state)
                 self.storestatus(tr=tr)
                 storecollapsemsg(repo, self.collapsemsg)
                 if len(repo[None].parents()) == 2:
@@ -439,19 +426,6 @@ class rebaseruntime(object):
                         self.skipped.add(rev)
                     self.state[rev] = p1
                     ui.debug('next revision set to %s\n' % p1)
-            elif self.state[rev] == nullmerge:
-                ui.debug('ignoring null merge rebase of %s\n' % rev)
-            elif self.state[rev] == revignored:
-                ui.status(_('not rebasing ignored %s\n') % desc)
-            elif self.state[rev] == revprecursor:
-                destctx = repo[self.obsoletenotrebased[rev]]
-                descdest = '%d:%s "%s"' % (destctx.rev(), destctx,
-                           destctx.description().split('\n', 1)[0])
-                msg = _('note: not rebasing %s, already in destination as %s\n')
-                ui.status(msg % (desc, descdest))
-            elif self.state[rev] == revpruned:
-                msg = _('note: not rebasing %s, it has no successor\n')
-                ui.status(msg % desc)
             else:
                 ui.status(_('already rebased %s as %s\n') %
                           (desc, repo[self.state[rev]]))
@@ -463,9 +437,7 @@ class rebaseruntime(object):
         repo, ui, opts = self.repo, self.ui, self.opts
         if self.collapsef and not self.keepopen:
             p1, p2, _base = defineparents(repo, min(self.state),
-                                          self.dest, self.state,
-                                          self.destancestors,
-                                          self.obsoletenotrebased)
+                                          self.dest, self.state)
             editopt = opts.get('edit')
             editform = 'rebase.collapse'
             if self.collapsemsg:
@@ -473,24 +445,25 @@ class rebaseruntime(object):
             else:
                 commitmsg = 'Collapsed revision'
                 for rebased in sorted(self.state):
-                    if rebased not in self.skipped and\
-                       self.state[rebased] > nullmerge:
+                    if rebased not in self.skipped:
                         commitmsg += '\n* %s' % repo[rebased].description()
                 editopt = True
             editor = cmdutil.getcommiteditor(edit=editopt, editform=editform)
             revtoreuse = max(self.state)
-            newnode = concludenode(repo, revtoreuse, p1, self.external,
-                                   commitmsg=commitmsg,
-                                   extrafn=_makeextrafn(self.extrafns),
-                                   editor=editor,
-                                   keepbranches=self.keepbranchesf,
-                                   date=self.date)
-            if newnode is None:
-                newrev = self.dest
-            else:
+
+            dsguard = None
+            if ui.configbool('rebase', 'singletransaction'):
+                dsguard = dirstateguard.dirstateguard(repo, 'rebase')
+            with util.acceptintervention(dsguard):
+                newnode = concludenode(repo, revtoreuse, p1, self.external,
+                                       commitmsg=commitmsg,
+                                       extrafn=_makeextrafn(self.extrafns),
+                                       editor=editor,
+                                       keepbranches=self.keepbranchesf,
+                                       date=self.date)
+            if newnode is not None:
                 newrev = repo[newnode].rev()
-            for oldrev in self.state.iterkeys():
-                if self.state[oldrev] > nullmerge:
+                for oldrev in self.state.keys():
                     self.state[oldrev] = newrev
 
         if 'qtip' in repo.tags():
@@ -499,9 +472,7 @@ class rebaseruntime(object):
         # restore original working directory
         # (we do this before stripping)
         newwd = self.state.get(self.originalwd, self.originalwd)
-        if newwd == revprecursor:
-            newwd = self.obsoletenotrebased[self.originalwd]
-        elif newwd < 0:
+        if newwd < 0:
             # original directory is a parent of rebase set root or ignored
             newwd = self.originalwd
         if newwd not in [c.rev() for c in repo[None].parents()]:
@@ -711,10 +682,16 @@ def rebase(ui, repo, **opts):
                 return retcode
 
         tr = None
-        if ui.configbool('rebase', 'singletransaction'):
+        dsguard = None
+
+        singletr = ui.configbool('rebase', 'singletransaction')
+        if singletr:
             tr = repo.transaction('rebase')
         with util.acceptintervention(tr):
-            rbsrt._performrebase(tr)
+            if singletr:
+                dsguard = dirstateguard.dirstateguard(repo, 'rebase')
+            with util.acceptintervention(dsguard):
+                rbsrt._performrebase(tr)
 
         rbsrt._finishrebase()
 
@@ -775,7 +752,7 @@ def _definesets(ui, repo, destf=None, srcf=None, basef=None, revf=None,
             # emulate the old behavior, showing "nothing to rebase" (a better
             # behavior may be abort with "cannot find branching point" error)
             bpbase.clear()
-        for bp, bs in bpbase.iteritems(): # calculate roots
+        for bp, bs in bpbase.items(): # calculate roots
             roots += list(repo.revs('children(%d) & ancestors(%ld)', bp, bs))
 
         rebaseset = repo.revs('%ld::', roots)
@@ -841,8 +818,10 @@ def concludenode(repo, rev, p1, p2, commitmsg=None, editor=None, extrafn=None,
     '''Commit the wd changes with parents p1 and p2. Reuse commit info from rev
     but also store useful information in extra.
     Return node of committed revision.'''
-    dsguard = dirstateguard.dirstateguard(repo, 'rebase')
-    try:
+    dsguard = util.nullcontextmanager()
+    if not repo.ui.configbool('rebase', 'singletransaction'):
+        dsguard = dirstateguard.dirstateguard(repo, 'rebase')
+    with dsguard:
         repo.setparents(repo[p1].node(), repo[p2].node())
         ctx = repo[rev]
         if commitmsg is None:
@@ -864,10 +843,7 @@ def concludenode(repo, rev, p1, p2, commitmsg=None, editor=None, extrafn=None,
                                   date=date, extra=extra, editor=editor)
 
         repo.dirstate.setbranch(repo[newnode].branch())
-        dsguard.close()
         return newnode
-    finally:
-        release(dsguard)
 
 def rebasenode(repo, rev, p1, base, state, collapse, dest):
     'Rebase a single revision rev on top of p1 using base as merge ancestor'
@@ -938,33 +914,24 @@ def adjustdest(repo, rev, dest, state):
         |/          |/
         A           A
     """
+    # pick already rebased revs from state
+    source = [s for s, d in list(state.items()) if d > 0]
+
     result = []
     for prev in repo.changelog.parentrevs(rev):
         adjusted = dest
         if prev != nullrev:
-            # pick already rebased revs from state
-            source = [s for s, d in state.items() if d > 0]
             candidate = repo.revs('max(%ld and (::%d))', source, prev).first()
             if candidate is not None:
                 adjusted = state[candidate]
         result.append(adjusted)
     return result
 
-def nearestrebased(repo, rev, state):
-    """return the nearest ancestors of rev in the rebase result"""
-    rebased = [r for r in state if state[r] > nullmerge]
-    candidates = repo.revs('max(%ld  and (::%d))', rebased, rev)
-    if candidates:
-        return state[candidates.first()]
-    else:
-        return None
-
-def _checkobsrebase(repo, ui, rebaseobsrevs, rebasesetrevs, rebaseobsskipped):
+def _checkobsrebase(repo, ui, rebaseobsrevs, rebaseobsskipped):
     """
     Abort if rebase will create divergence or rebase is noop because of markers
 
     `rebaseobsrevs`: set of obsolete revision in source
-    `rebasesetrevs`: set of revisions to be rebased from source
     `rebaseobsskipped`: set of revisions from source skipped because they have
     successors in destination
     """
@@ -982,107 +949,192 @@ def _checkobsrebase(repo, ui, rebaseobsrevs, rebasesetrevs, rebaseobsskipped):
               "experimental.allowdivergence=True")
         raise error.Abort(msg % (",".join(divhashes),), hint=h)
 
-def defineparents(repo, rev, dest, state, destancestors,
-                  obsoletenotrebased):
-    'Return the new parent relationship of the revision that will be rebased'
-    parents = repo[rev].parents()
-    p1 = p2 = nullrev
-    rp1 = None
+def successorrevs(repo, rev):
+    """yield revision numbers for successors of rev"""
+    unfi = repo.unfiltered()
+    nodemap = unfi.changelog.nodemap
+    for s in obsutil.allsuccessors(unfi.obsstore, [unfi[rev].node()]):
+        if s in nodemap:
+            yield nodemap[s]
 
-    p1n = parents[0].rev()
-    if p1n in destancestors:
-        p1 = dest
-    elif p1n in state:
-        if state[p1n] == nullmerge:
-            p1 = dest
-        elif state[p1n] in revskipped:
-            p1 = nearestrebased(repo, p1n, state)
-            if p1 is None:
-                p1 = dest
-        else:
-            p1 = state[p1n]
-    else: # p1n external
-        p1 = dest
-        p2 = p1n
+def defineparents(repo, rev, dest, state):
+    """Return new parents and optionally a merge base for rev being rebased
 
-    if len(parents) == 2 and parents[1].rev() not in destancestors:
-        p2n = parents[1].rev()
-        # interesting second parent
-        if p2n in state:
-            if p1 == dest: # p1n in destancestors or external
-                p1 = state[p2n]
-                if p1 == revprecursor:
-                    rp1 = obsoletenotrebased[p2n]
-            elif state[p2n] in revskipped:
-                p2 = nearestrebased(repo, p2n, state)
-                if p2 is None:
-                    # no ancestors rebased yet, detach
-                    p2 = dest
-            else:
-                p2 = state[p2n]
-        else: # p2n external
-            if p2 != nullrev: # p1n external too => rev is a merged revision
-                raise error.Abort(_('cannot use revision %d as base, result '
-                        'would have 3 parents') % rev)
-            p2 = p2n
-    repo.ui.debug(" future parents are %d and %d\n" %
-                            (repo[rp1 or p1].rev(), repo[p2].rev()))
+    The destination specified by "dest" cannot always be used directly because
+    previously rebase result could affect destination. For example,
 
-    if not any(p.rev() in state for p in parents):
-        # Case (1) root changeset of a non-detaching rebase set.
-        # Let the merge mechanism find the base itself.
-        base = None
-    elif not repo[rev].p2():
-        # Case (2) detaching the node with a single parent, use this parent
-        base = repo[rev].p1().rev()
+          D E    rebase -r C+D+E -d B
+          |/     C will be rebased to C'
+        B C      D's new destination will be C' instead of B
+        |/       E's new destination will be C' instead of B
+        A
+
+    The new parents of a merge is slightly more complicated. See the comment
+    block below.
+    """
+    cl = repo.changelog
+    def isancestor(a, b):
+        # take revision numbers instead of nodes
+        if a == b:
+            return True
+        elif a > b:
+            return False
+        return cl.isancestor(cl.node(a), cl.node(b))
+
+    oldps = repo.changelog.parentrevs(rev) # old parents
+    newps = [nullrev, nullrev] # new parents
+    dests = adjustdest(repo, rev, dest, state) # adjusted destinations
+    bases = list(oldps) # merge base candidates, initially just old parents
+
+    if all(r == nullrev for r in oldps[1:]):
+        # For non-merge changeset, just move p to adjusted dest as requested.
+        newps[0] = dests[0]
     else:
-        # Assuming there is a p1, this is the case where there also is a p2.
-        # We are thus rebasing a merge and need to pick the right merge base.
+        # For merge changeset, if we move p to dests[i] unconditionally, both
+        # parents may change and the end result looks like "the merge loses a
+        # parent", which is a surprise. This is a limit because "--dest" only
+        # accepts one dest per src.
         #
-        # Imagine we have:
-        # - M: current rebase revision in this step
-        # - A: one parent of M
-        # - B: other parent of M
-        # - D: destination of this merge step (p1 var)
+        # Therefore, only move p with reasonable conditions (in this order):
+        #   1. use dest, if dest is a descendent of (p or one of p's successors)
+        #   2. use p's rebased result, if p is rebased (state[p] > 0)
         #
-        # Consider the case where D is a descendant of A or B and the other is
-        # 'outside'. In this case, the right merge base is the D ancestor.
+        # Comparing with adjustdest, the logic here does some additional work:
+        #   1. decide which parents will not be moved towards dest
+        #   2. if the above decision is "no", should a parent still be moved
+        #      because it was rebased?
         #
-        # An informal proof, assuming A is 'outside' and B is the D ancestor:
+        # For example:
         #
-        # If we pick B as the base, the merge involves:
-        # - changes from B to M (actual changeset payload)
-        # - changes from B to D (induced by rebase) as D is a rebased
-        #   version of B)
-        # Which exactly represent the rebase operation.
+        #     C    # "rebase -r C -d D" is an error since none of the parents
+        #    /|    # can be moved. "rebase -r B+C -d D" will move C's parent
+        #   A B D  # B (using rule "2."), since B will be rebased.
         #
-        # If we pick A as the base, the merge involves:
-        # - changes from A to M (actual changeset payload)
-        # - changes from A to D (with include changes between unrelated A and B
-        #   plus changes induced by rebase)
-        # Which does not represent anything sensible and creates a lot of
-        # conflicts. A is thus not the right choice - B is.
-        #
-        # Note: The base found in this 'proof' is only correct in the specified
-        # case. This base does not make sense if is not D a descendant of A or B
-        # or if the other is not parent 'outside' (especially not if the other
-        # parent has been rebased). The current implementation does not
-        # make it feasible to consider different cases separately. In these
-        # other cases we currently just leave it to the user to correctly
-        # resolve an impossible merge using a wrong ancestor.
-        #
-        # xx, p1 could be -4, and both parents could probably be -4...
-        for p in repo[rev].parents():
-            if state.get(p.rev()) == p1:
-                base = p.rev()
-                break
-        else: # fallback when base not found
-            base = None
+        # The loop tries to be not rely on the fact that a Mercurial node has
+        # at most 2 parents.
+        for i, p in enumerate(oldps):
+            np = p # new parent
+            if any(isancestor(x, dests[i]) for x in successorrevs(repo, p)):
+                np = dests[i]
+            elif p in state and state[p] > 0:
+                np = state[p]
 
-            # Raise because this function is called wrong (see issue 4106)
-            raise AssertionError('no base found to rebase on '
-                                 '(defineparents called wrong)')
-    return rp1 or p1, p2, base
+            # "bases" only record "special" merge bases that cannot be
+            # calculated from changelog DAG (i.e. isancestor(p, np) is False).
+            # For example:
+            #
+            #   B'   # rebase -s B -d D, when B was rebased to B'. dest for C
+            #   | C  # is B', but merge base for C is B, instead of
+            #   D |  # changelog.ancestor(C, B') == A. If changelog DAG and
+            #   | B  # "state" edges are merged (so there will be an edge from
+            #   |/   # B to B'), the merge base is still ancestor(C, B') in
+            #   A    # the merged graph.
+            #
+            # Also see https://bz.mercurial-scm.org/show_bug.cgi?id=1950#c8
+            # which uses "virtual null merge" to explain this situation.
+            if isancestor(p, np):
+                bases[i] = nullrev
+
+            # If one parent becomes an ancestor of the other, drop the ancestor
+            for j, x in enumerate(newps[:i]):
+                if x == nullrev:
+                    continue
+                if isancestor(np, x): # CASE-1
+                    np = nullrev
+                elif isancestor(x, np): # CASE-2
+                    newps[j] = np
+                    np = nullrev
+                    # New parents forming an ancestor relationship does not
+                    # mean the old parents have a similar relationship. Do not
+                    # set bases[x] to nullrev.
+                    bases[j], bases[i] = bases[i], bases[j]
+
+            newps[i] = np
+
+        # "rebasenode" updates to new p1, and the old p1 will be used as merge
+        # base. If only p2 changes, merging using unchanged p1 as merge base is
+        # suboptimal. Therefore swap parents to make the merge sane.
+        if newps[1] != nullrev and oldps[0] == newps[0]:
+            assert len(newps) == 2 and len(oldps) == 2
+            newps.reverse()
+            bases.reverse()
+
+        # No parent change might be an error because we fail to make rev a
+        # descendent of requested dest. This can happen, for example:
+        #
+        #     C    # rebase -r C -d D
+        #    /|    # None of A and B will be changed to D and rebase fails.
+        #   A B D
+        if set(newps) == set(oldps) and dest not in newps:
+            raise error.Abort(_('cannot rebase %d:%s without '
+                                'moving at least one of its parents')
+                              % (rev, repo[rev]))
+
+    # "rebasenode" updates to new p1, use the corresponding merge base.
+    if bases[0] != nullrev:
+        base = bases[0]
+    else:
+        base = None
+
+    # Check if the merge will contain unwanted changes. That may happen if
+    # there are multiple special (non-changelog ancestor) merge bases, which
+    # cannot be handled well by the 3-way merge algorithm. For example:
+    #
+    #     F
+    #    /|
+    #   D E  # "rebase -r D+E+F -d Z", when rebasing F, if "D" was chosen
+    #   | |  # as merge base, the difference between D and F will include
+    #   B C  # C, so the rebased F will contain C surprisingly. If "E" was
+    #   |/   #  chosen, the rebased F will contain B.
+    #   A Z
+    #
+    # But our merge base candidates (D and E in above case) could still be
+    # better than the default (ancestor(F, Z) == null). Therefore still
+    # pick one (so choose p1 above).
+    if sum(1 for b in bases if b != nullrev) > 1:
+        unwanted = [None, None] # unwanted[i]: unwanted revs if choose bases[i]
+        for i, base in enumerate(bases):
+            if base == nullrev:
+                continue
+            # Revisions in the side (not chosen as merge base) branch that
+            # might contain "surprising" contents
+            siderevs = list(repo.revs('((%ld-%d) %% (%d+%d))',
+                                      bases, base, base, dest))
+
+            # If those revisions are covered by rebaseset, the result is good.
+            # A merge in rebaseset would be considered to cover its ancestors.
+            if siderevs:
+                rebaseset = [r for r, d in list(state.items()) if d > 0]
+                merges = [r for r in rebaseset
+                          if cl.parentrevs(r)[1] != nullrev]
+                unwanted[i] = list(repo.revs('%ld - (::%ld) - %ld',
+                                             siderevs, merges, rebaseset))
+
+        # Choose a merge base that has a minimal number of unwanted revs.
+        l, i = min((len(revs), i)
+                   for i, revs in enumerate(unwanted) if revs is not None)
+        base = bases[i]
+
+        # newps[0] should match merge base if possible. Currently, if newps[i]
+        # is nullrev, the only case is newps[i] and newps[j] (j < i), one is
+        # the other's ancestor. In that case, it's fine to not swap newps here.
+        # (see CASE-1 and CASE-2 above)
+        if i != 0 and newps[i] != nullrev:
+            newps[0], newps[i] = newps[i], newps[0]
+
+        # The merge will include unwanted revisions. Abort now. Revisit this if
+        # we have a more advanced merge algorithm that handles multiple bases.
+        if l > 0:
+            unwanteddesc = _(' or ').join(
+                (', '.join('%d:%s' % (r, repo[r]) for r in revs)
+                 for revs in unwanted if revs is not None))
+            raise error.Abort(
+                _('rebasing %d:%s will include unwanted changes from %s')
+                % (rev, repo[rev], unwanteddesc))
+
+    repo.ui.debug(" future parents are %d and %d\n" % tuple(newps))
+
+    return newps[0], newps[1], base
 
 def isagitpatch(repo, patchname):
     'Return true if the given patch is in git format'
@@ -1110,7 +1162,7 @@ def updatemq(repo, state, skipped, **opts):
             skippedpatches.add(p.name)
 
     if mqrebase:
-        mq.finish(repo, mqrebase.keys())
+        mq.finish(repo, list(mqrebase.keys()))
 
         # We must start import from the newest revision
         for rev in sorted(mqrebase, reverse=True):
@@ -1179,7 +1231,7 @@ def needupdate(repo, state):
         return False
 
     # We should be standing on the first as-of-yet unrebased commit.
-    firstunrebased = min([old for old, new in state.iteritems()
+    firstunrebased = min([old for old, new in state.items()
                           if new == nullrev])
     if firstunrebased in parents:
         return True
@@ -1196,7 +1248,7 @@ def abort(repo, originalwd, dest, state, activebookmark=None):
         # If the first commits in the rebased set get skipped during the rebase,
         # their values within the state mapping will be the dest rev id. The
         # dstates list must must not contain the dest rev (issue4896)
-        dstates = [s for s in state.values() if s >= 0 and s != dest]
+        dstates = [s for s in list(state.values()) if s >= 0 and s != dest]
         immutable = [d for d in dstates if not repo[d].mutable()]
         cleanup = True
         if immutable:
@@ -1215,7 +1267,7 @@ def abort(repo, originalwd, dest, state, activebookmark=None):
 
         if cleanup:
             shouldupdate = False
-            rebased = filter(lambda x: x >= 0 and x != dest, state.values())
+            rebased = [x for x in list(state.values()) if x >= 0 and x != dest]
             if rebased:
                 strippoints = [
                         c.node() for c in repo.set('roots(%ld)', rebased)]
@@ -1265,7 +1317,6 @@ def buildstate(repo, dest, rebaseset, collapse, obsoletenotrebased):
         raise error.Abort(_('no matching revisions'))
     roots.sort()
     state = dict.fromkeys(rebaseset, revtodo)
-    detachset = set()
     emptyrebase = True
     for root in roots:
         commonbase = root.ancestor(dest)
@@ -1287,47 +1338,6 @@ def buildstate(repo, dest, rebaseset, collapse, obsoletenotrebased):
 
         emptyrebase = False
         repo.ui.debug('rebase onto %s starting from %s\n' % (dest, root))
-        # Rebase tries to turn <dest> into a parent of <root> while
-        # preserving the number of parents of rebased changesets:
-        #
-        # - A changeset with a single parent will always be rebased as a
-        #   changeset with a single parent.
-        #
-        # - A merge will be rebased as merge unless its parents are both
-        #   ancestors of <dest> or are themselves in the rebased set and
-        #   pruned while rebased.
-        #
-        # If one parent of <root> is an ancestor of <dest>, the rebased
-        # version of this parent will be <dest>. This is always true with
-        # --base option.
-        #
-        # Otherwise, we need to *replace* the original parents with
-        # <dest>. This "detaches" the rebased set from its former location
-        # and rebases it onto <dest>. Changes introduced by ancestors of
-        # <root> not common with <dest> (the detachset, marked as
-        # nullmerge) are "removed" from the rebased changesets.
-        #
-        # - If <root> has a single parent, set it to <dest>.
-        #
-        # - If <root> is a merge, we cannot decide which parent to
-        #   replace, the rebase operation is not clearly defined.
-        #
-        # The table below sums up this behavior:
-        #
-        # +------------------+----------------------+-------------------------+
-        # |                  |     one parent       |  merge                  |
-        # +------------------+----------------------+-------------------------+
-        # | parent in        | new parent is <dest> | parents in ::<dest> are |
-        # | ::<dest>         |                      | remapped to <dest>      |
-        # +------------------+----------------------+-------------------------+
-        # | unrelated source | new parent is <dest> | ambiguous, abort        |
-        # +------------------+----------------------+-------------------------+
-        #
-        # The actual abort is handled by `defineparents`
-        if len(root.parents()) <= 1:
-            # ancestors of <root> not ancestors of <dest>
-            detachset.update(repo.changelog.findmissingrevs([commonbase.rev()],
-                                                            [root.rev()]))
     if emptyrebase:
         return None
     for rev in sorted(state):
@@ -1335,23 +1345,21 @@ def buildstate(repo, dest, rebaseset, collapse, obsoletenotrebased):
         # if all parents of this revision are done, then so is this revision
         if parents and all((state.get(p) == p for p in parents)):
             state[rev] = rev
-    for r in detachset:
-        if r not in state:
-            state[r] = nullmerge
-    if len(roots) > 1:
-        # If we have multiple roots, we may have "hole" in the rebase set.
-        # Rebase roots that descend from those "hole" should not be detached as
-        # other root are. We use the special `revignored` to inform rebase that
-        # the revision should be ignored but that `defineparents` should search
-        # a rebase destination that make sense regarding rebased topology.
-        rebasedomain = set(repo.revs('%ld::%ld', rebaseset, rebaseset))
-        for ignored in set(rebasedomain) - set(rebaseset):
-            state[ignored] = revignored
+    unfi = repo.unfiltered()
     for r in obsoletenotrebased:
-        if obsoletenotrebased[r] is None:
-            state[r] = revpruned
+        desc = _ctxdesc(unfi[r])
+        succ = obsoletenotrebased[r]
+        if succ is None:
+            msg = _('note: not rebasing %s, it has no successor\n') % desc
+            del state[r]
         else:
-            state[r] = revprecursor
+            destctx = unfi[succ]
+            destdesc = '%d:%s "%s"' % (destctx.rev(), destctx,
+                                       destctx.description().split('\n', 1)[0])
+            msg = (_('note: not rebasing %s, already in destination as %s\n')
+                   % (desc, destdesc))
+            del state[r]
+        repo.ui.status(msg)
     return originalwd, dest.rev(), state
 
 def clearrebased(ui, repo, dest, state, skipped, collapsedas=None):
@@ -1498,7 +1506,7 @@ def _computeobsoletenotrebased(repo, rebaseobsrevs, dest):
             if s in ancs:
                 obsoletenotrebased[allsuccessors[s]] = s
             elif (s == allsuccessors[s] and
-                  allsuccessors.values().count(s) == 1):
+                  list(allsuccessors.values()).count(s) == 1):
                 # plain prune
                 obsoletenotrebased[s] = None
 
@@ -1516,7 +1524,7 @@ def summaryhook(ui, repo):
         msg = _('rebase: (use "hg rebase --abort" to clear broken state)\n')
         ui.write(msg)
         return
-    numrebased = len([i for i in state.itervalues() if i >= 0])
+    numrebased = len([i for i in state.values() if i >= 0])
     # i18n: column positioning for "hg summary"
     ui.write(_('rebase: %s, %s (rebase --continue)\n') %
              (ui.label(_('%d rebased'), 'rebase.rebased') % numrebased,

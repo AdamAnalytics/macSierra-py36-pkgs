@@ -33,15 +33,12 @@ class Classifier(link.Chain):
     def __init__(self, predictor,
                  lossfun=softmax_cross_entropy.softmax_cross_entropy,
                  accfun=accuracy.accuracy):
-        super(Classifier, self).__init__()
+        super(Classifier, self).__init__(predictor=predictor)
         self.lossfun = lossfun
         self.accfun = accfun
         self.y = None
         self.loss = None
         self.accuracy = None
-
-        with self.init_scope():
-            self.predictor = predictor
 
     def __call__(self, *args):
         """Computes the loss value for an input and label pair.

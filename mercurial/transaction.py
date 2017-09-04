@@ -11,7 +11,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import errno
 
@@ -101,7 +101,7 @@ def _playback(journal, report, opener, vfsmap, entries, backupentries,
         # only pure backup file remains, it is sage to ignore any error
         pass
 
-class transaction(object):
+class transaction(util.transactional):
     def __init__(self, report, opener, vfsmap, journalname, undoname=None,
                  after=None, createmode=None, validator=None, releasefn=None,
                  checkambigfiles=None):
@@ -312,7 +312,7 @@ class transaction(object):
     def _generatefiles(self, suffix='', group=gengroupall):
         # write files registered for generation
         any = False
-        for id, entry in sorted(self._filegenerators.iteritems()):
+        for id, entry in sorted(self._filegenerators.items()):
             any = True
             order, filenames, genfunc, location = entry
 
@@ -375,16 +375,6 @@ class transaction(object):
         # if the transaction scopes are left without being closed, fail
         if self.count > 0 and self.usages == 0:
             self._abort()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        try:
-            if exc_type is None:
-                self.close()
-        finally:
-            self.release()
 
     def running(self):
         return self.count > 0

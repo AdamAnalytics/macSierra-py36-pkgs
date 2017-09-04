@@ -16,6 +16,7 @@ from py4j.compat import range
 from py4j.java_gateway import (
     JavaGateway, PythonProxyPool, CallbackServerParameters,
     set_default_callback_accept_timeout)
+from py4j.protocol import Py4JJavaError
 from py4j.tests.java_gateway_test import (
     PY4J_JAVA_PATH, safe_shutdown, sleep, check_connection)
 
@@ -93,6 +94,36 @@ def start_example_app_process3():
     sleep()
     check_connection()
     return p
+
+
+class Returner(object):
+
+    def __init__(self, bad_type=False):
+        self.bad_type = bad_type
+
+    def getChar(self):
+        return "a"
+
+    def getFloat(self):
+        if self.bad_type:
+            return "abc"
+        else:
+            return 1.25
+
+    def getInt(self):
+        if self.bad_type:
+            return 1111111111111111111111111111
+        else:
+            return 25
+
+    def doNothing(self):
+        print("Doing nothing")
+
+    def getNull(self):
+        return None
+
+    class Java:
+        implements = ["py4j.examples.IReturnConverter"]
 
 
 class FalseAddition(object):
@@ -242,7 +273,7 @@ class IntegrationTest(unittest.TestCase):
         self.p.join()
         sleep()
 
-#    Does not work when combined with other tests... because of TCP_WAIT
+    # Does not work when combined with other tests... because of TCP_WAIT
     def testShutdown(self):
         example = self.gateway.entry_point.getNewExample()
         impl = IHelloImpl()
@@ -252,6 +283,50 @@ class IntegrationTest(unittest.TestCase):
             example.callHello2(impl))
         self.gateway.shutdown()
         self.assertEqual(0, len(self.gateway.gateway_property.pool))
+
+    def testProxyReturnerFloatErrorTypeConversion(self):
+        sleep()
+        example = self.gateway.jvm.py4j.examples.ReturnerExample()
+        returner = Returner(bad_type=True)
+        self.assertRaises(
+            Py4JJavaError, example.computeFloat,
+            returner)
+
+    def testProxyReturnerIntOverflow(self):
+        sleep()
+        example = self.gateway.jvm.py4j.examples.ReturnerExample()
+        returner = Returner(bad_type=True)
+        self.assertRaises(
+            Py4JJavaError, example.computeInt,
+            returner)
+
+    def testProxyReturnerFloat(self):
+        sleep()
+        example = self.gateway.jvm.py4j.examples.ReturnerExample()
+        returner = Returner()
+        output = example.computeFloat(returner)
+        self.assertAlmostEqual(output, 1.25)
+
+    def testProxyReturnerChar(self):
+        sleep()
+        example = self.gateway.jvm.py4j.examples.ReturnerExample()
+        returner = Returner()
+        output = example.computeChar(returner)
+        self.assertEqual(output, "a")
+
+    def testProxyReturnerVoid(self):
+        sleep()
+        example = self.gateway.jvm.py4j.examples.ReturnerExample()
+        returner = Returner()
+        output = example.computeNothing(returner)
+        self.assertEqual(output, 1)
+
+    def testProxyReturnerNull(self):
+        sleep()
+        example = self.gateway.jvm.py4j.examples.ReturnerExample()
+        returner = Returner()
+        output = example.computeNull(returner)
+        self.assertEqual(output, None)
 
     def testProxy(self):
         sleep()

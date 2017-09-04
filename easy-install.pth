@@ -1,11 +1,1 @@
-./xgboost-0.6-py3.6.egg
-./src/facebook-sdk
-./remotecv-2.2.1-py3.6.egg
-./Pillow-3.4.2-py3.6-macosx-10.13-x86_64.egg
-./argparse-1.1-py3.6.egg
-./pyres-1.5-py3.6.egg
-./setproctitle-1.1.10-py3.6-macosx-10.13-x86_64.egg
-./simplejson-3.11.1-py3.6-macosx-10.13-x86_64.egg
-./Speech_Hacker-2.3-py3.6.egg
-./SimpleAudioIndexer-1.0.0-py3.6.egg
-./control-dev-py3.6.egg
+./pandas-0.21.0.dev0+412.g062f6f118-py3.6-macosx-10.12.6-x86_64.egg

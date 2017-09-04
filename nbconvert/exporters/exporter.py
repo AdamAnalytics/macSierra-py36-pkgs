@@ -13,9 +13,10 @@ import copy
 import collections
 import datetime
 
+import nbformat
+
 from traitlets.config.configurable import LoggingConfigurable
 from traitlets.config import Config
-import nbformat
 from traitlets import HasTraits, Unicode, List, TraitError
 from traitlets.utils.importstring import import_item
 from ipython_genutils import text, py3compat
@@ -68,6 +69,7 @@ class Exporter(LoggingConfigurable):
     _preprocessors = List()
 
     default_preprocessors = List([
+                                  'nbconvert.preprocessors.TagRemovePreprocessor',
                                   'nbconvert.preprocessors.RegexRemovePreprocessor',
                                   'nbconvert.preprocessors.ClearOutputPreprocessor',
                                   'nbconvert.preprocessors.ExecutePreprocessor',
@@ -307,4 +309,11 @@ class Exporter(LoggingConfigurable):
         #to each preprocessor
         for preprocessor in self._preprocessors:
             nbc, resc = preprocessor(nbc, resc)
+            try: 
+                nbformat.validate(nbc, relax_add_props=True)
+            except nbformat.ValidationError:
+                self.log.error('Notebook is invalid after preprocessor {}',
+                               preprocessor)
+                raise
+
         return nbc, resc

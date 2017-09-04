@@ -1,6 +1,5 @@
 import numpy
 
-import chainer
 from chainer import cuda
 from chainer import function
 from chainer import utils
@@ -17,54 +16,49 @@ class Sigmoid(function.Function):
 
     """Logistic sigmoid function."""
 
+    def __init__(self, use_cudnn=True):
+        self.use_cudnn = use_cudnn
+
     def check_type_forward(self, in_types):
         type_check.expect(in_types.size() == 1)
         type_check.expect(in_types[0].dtype.kind == 'f')
 
     def forward_cpu(self, x):
         half = x[0].dtype.type(0.5)
-        y = utils.force_array(numpy.tanh(x[0] * half) * half + half)
-        self.retain_outputs((0,))
-        return y,
+        self.y = utils.force_array(numpy.tanh(x[0] * half) * half + half)
+        return self.y,
 
     def forward_gpu(self, inputs):
         x = inputs[0]
-        if (chainer.should_use_cudnn('==always') and
-                x.flags.c_contiguous and
+        if (cuda.cudnn_enabled and self.use_cudnn and x.flags.c_contiguous and
                 (_cudnn_version >= 3000 or x.dtype != numpy.float16)):
-            y = cudnn.activation_forward(x, _mode)
+            self.y = cuda.cupy.cudnn.activation_forward(x, _mode)
         else:
-            y = cuda.elementwise(
+            self.y = cuda.elementwise(
                 'T x', 'T y', 'y = tanh(x * 0.5) * 0.5 + 0.5',
                 'sigmoid_fwd')(x)
-            self.retain_inputs(())
-        self.retain_outputs((0,))
-        return y,
+        return self.y,
 
     def backward_cpu(self, x, gy):
         one = x[0].dtype.type(1)
-        y = self.output_data[0]
-        return utils.force_array(gy[0] * y * (one - y)),
+        return utils.force_array(gy[0] * self.y * (one - self.y)),
 
     def backward_gpu(self, inputs, grads):
         x = inputs[0]
         gy = grads[0]
-        y = self.output_data[0]
-        if (chainer.should_use_cudnn('==always') and
+        if (cuda.cudnn_enabled and self.use_cudnn and x.flags.c_contiguous and
                 gy.flags.c_contiguous and
-                x is not None and
-                x.flags.c_contiguous and
                 (_cudnn_version >= 3000 or x.dtype != numpy.float16)):
-            gx = cudnn.activation_backward(x, y, gy, _mode)
+            gx = cuda.cupy.cudnn.activation_backward(x, self.y, gy, _mode)
         else:
             gx = cuda.elementwise(
                 'T y, T gy', 'T gx',
                 'gx = gy * y * (1 - y)',
-                'sigmoid_bwd')(y, gy)
+                'sigmoid_bwd')(self.y, gy)
         return gx,
 
 
-def sigmoid(x):
+def sigmoid(x, use_cudnn=True):
     """Element-wise sigmoid logistic function.
 
      .. math:: f(x)=(1 + \\exp(-x))^{-1}.
@@ -73,6 +67,8 @@ def sigmoid(x):
         x (:class:`~chainer.Variable` or :class:`numpy.ndarray` or \
         :class:`cupy.ndarray`):
             Input variable. A :math:`(s_1, s_2, ..., s_N)`-shaped float array.
+        use_cudnn (bool): If ``True`` and cuDNN is enabled, then this function
+            uses cuDNN as the core implementation.
 
     Returns:
         ~chainer.Variable: Output variable. A
@@ -89,4 +85,4 @@ def sigmoid(x):
         array([ 0.11920291,  0.5       ,  0.88079709], dtype=float32)
 
     """
-    return Sigmoid()(x)
+    return Sigmoid(use_cudnn)(x)

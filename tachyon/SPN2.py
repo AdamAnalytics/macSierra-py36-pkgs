@@ -74,7 +74,7 @@ class SPN:
 		b = 0
 		runs = 1+(len(data)-1)//ms
 		for i in range(runs):
-			print i+1, "/", runs
+			print(i+1, "/", runs)
 			b = min(len(data), a + ms)
 			n_data = data[a:b, :, :]#
 			if self.classify:
@@ -103,7 +103,7 @@ class SPN:
 		b = 0 #end of data for a batch
 		runs = 1+(len(data)-1)//ms
 		for i in range(runs):
-			print i+1, "/", runs
+			print(i+1, "/", runs)
 			b = min(len(data), a + ms)
 			n_data = data[a:b, :, :] #get data from a to b
 			if self.classify:
@@ -127,7 +127,7 @@ class SPN:
 	def test(self, inp):
 		feed_dict = {self.model.input: inp}
 		vals = self.model.session.run(self.model.computations, feed_dict=feed_dict)
-		print vals
+		print(vals)
 		return vals;
 
 	def train(self, epochs, data=[], labels=[], minibatch_size=512, valid_data=[], gd=True, compute_size=1000, count=False, cccp=False, patience=100, summ=False, dropout=0.0):
@@ -148,14 +148,14 @@ class SPN:
 		if valid:
 			prev_valid = self.evaluate(valid_data, summ=val_sum, minibatch_size=compute_size, epoch=0)
 		history = dict(train_loss=[], valid_loss=[])
-		for e in xrange(epochs):
+		for e in range(epochs):
 			a = 0
 			b = 0
-			print 'Epoch ' + str(e)
+			print('Epoch ' + str(e))
 			tot_loss = 0
 			ms = minibatch_size
 			for i in range(1+(len(data)-1)//ms):
-				print i+1, "/", 1+(len(data)-1)//ms
+				print(i+1, "/", 1+(len(data)-1)//ms)
 				b = min(len(data), a + ms)
 				n_data = data[a:b, :, :]
 				dropout_val = 0.5-(dropout/2)
@@ -166,7 +166,7 @@ class SPN:
 				if (a == b):
 					break
 				if cccp:
-					print "yo"
+					print("yo")
 					self.model.apply_cccp(feed_dict, compute_size=compute_size)
 				if count:
 					self.model.apply_count(feed_dict, compute_size=compute_size)
@@ -182,12 +182,12 @@ class SPN:
 				tot_loss += (b-a)*np.mean(loss)
 				a += ms
 			tot_loss /= float(len(data))
-			print tot_loss
+			print(tot_loss)
 			history["train_loss"].append(tot_loss)
 			if valid:
 				valid_loss = self.evaluate(valid_data, summ=val_sum, minibatch_size=compute_size ,epoch=e+1)
 				history["valid_loss"] = valid_loss
-				print valid_loss
+				print(valid_loss)
 				if valid_loss > prev_valid:
 					bad += 1
 					if bad == patience:

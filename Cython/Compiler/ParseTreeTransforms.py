@@ -1671,24 +1671,24 @@ if VALUE is not None:
             unpickle_func = TreeFragment(u"""
                 def %(unpickle_func_name)s(__pyx_type, long __pyx_checksum, __pyx_state):
                     if __pyx_checksum != %(checksum)s:
-                        from pickle import PickleError
-                        raise PickleError("Incompatible checksums (%%s vs %(checksum)s = (%(members)s))" %% __pyx_checksum)
-                    result = %(class_name)s.__new__(__pyx_type)
+                        from pickle import PickleError as __pyx_PickleError
+                        raise __pyx_PickleError("Incompatible checksums (%%s vs %(checksum)s = (%(members)s))" %% __pyx_checksum)
+                    __pyx_result = %(class_name)s.__new__(__pyx_type)
                     if __pyx_state is not None:
-                        %(unpickle_func_name)s__set_state(<%(class_name)s> result, __pyx_state)
-                    return result
+                        %(unpickle_func_name)s__set_state(<%(class_name)s> __pyx_result, __pyx_state)
+                    return __pyx_result
 
-                cdef %(unpickle_func_name)s__set_state(%(class_name)s result, tuple __pyx_state):
+                cdef %(unpickle_func_name)s__set_state(%(class_name)s __pyx_result, tuple __pyx_state):
                     %(assignments)s
-                    if hasattr(result, '__dict__'):
-                        result.__dict__.update(__pyx_state[%(num_members)s])
+                    if len(__pyx_state) > %(num_members)d and hasattr(__pyx_result, '__dict__'):
+                        __pyx_result.__dict__.update(__pyx_state[%(num_members)d])
                 """ % {
                     'unpickle_func_name': unpickle_func_name,
                     'checksum': checksum,
                     'members': ', '.join(all_members_names),
                     'class_name': node.class_name,
                     'assignments': '; '.join(
-                        'result.%s = __pyx_state[%s]' % (v, ix)
+                        '__pyx_result.%s = __pyx_state[%s]' % (v, ix)
                         for ix, v in enumerate(all_members_names)),
                     'num_members': len(all_members_names),
                 }, level='module', pipeline=[NormalizeTree(None)]).substitute({})
@@ -1702,7 +1702,7 @@ if VALUE is not None:
                     state = (%(members)s)
                     _dict = getattr(self, '__dict__', None)
                     if _dict is not None:
-                        state += _dict,
+                        state += (_dict,)
                         use_setstate = True
                     else:
                         use_setstate = %(any_notnone_members)s
@@ -2632,6 +2632,7 @@ class CreateClosureClasses(CythonTransform):
         func_scope.scope_class = entry
         class_scope = entry.type.scope
         class_scope.is_internal = True
+        class_scope.is_closure_class_scope = True
         if Options.closure_freelist_size:
             class_scope.directives['freelist'] = Options.closure_freelist_size
 
@@ -3019,22 +3020,22 @@ class TransformBuiltinMethods(EnvTransform):
 
     def visit_GeneralCallNode(self, node):
         function = node.function.as_cython_attribute()
-        if function:
+        if function == u'cast':
+            # NOTE: assuming simple tuple/dict nodes for positional_args and keyword_args
             args = node.positional_args.args
             kwargs = node.keyword_args.compile_time_value(None)
-            if function == u'cast':
-                if (len(args) != 2 or len(kwargs) > 1 or
-                        (len(kwargs) == 1 and 'typecheck' not in kwargs)):
-                    error(node.function.pos,
-                          u"cast() takes exactly two arguments and an optional typecheck keyword")
+            if (len(args) != 2 or len(kwargs) > 1 or
+                    (len(kwargs) == 1 and 'typecheck' not in kwargs)):
+                error(node.function.pos,
+                      u"cast() takes exactly two arguments and an optional typecheck keyword")
+            else:
+                type = args[0].analyse_as_type(self.current_env())
+                if type:
+                    typecheck = kwargs.get('typecheck', False)
+                    node = ExprNodes.TypecastNode(
+                        node.function.pos, type=type, operand=args[1], typecheck=typecheck)
                 else:
-                    type = args[0].analyse_as_type(self.current_env())
-                    if type:
-                        typecheck = kwargs.get('typecheck', False)
-                        node = ExprNodes.TypecastNode(
-                            node.function.pos, type=type, operand=args[1], typecheck=typecheck)
-                    else:
-                        error(args[0].pos, "Not a type")
+                    error(args[0].pos, "Not a type")
 
         self.visitchildren(node)
         return node

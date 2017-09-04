@@ -26,9 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+
+
+
 # no unicode literals
 
 import inspect
@@ -825,7 +825,7 @@ class client(object):
             p = subprocess.Popen(cmd, **args)
 
         except OSError as e:
-            raise WatchmanError('"watchman" executable not in PATH (%s)', e)
+            raise WatchmanError('"watchman" executable not in PATH (%s)' % e)
 
         stdout, stderr = p.communicate()
         exitcode = p.poll()

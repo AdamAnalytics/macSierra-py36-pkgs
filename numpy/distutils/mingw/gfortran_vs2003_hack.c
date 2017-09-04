@@ -1,1 +1,6 @@
-../../../../../../Cellar/numpy/1.13.1_1/lib/python3.6/site-packages/numpy/distutils/mingw/gfortran_vs2003_hack.c
+int _get_output_format(void)
+{
+	return 0;
+}
+
+int _imp____lc_codepage = 0;

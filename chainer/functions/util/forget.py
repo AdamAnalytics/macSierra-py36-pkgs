@@ -47,16 +47,14 @@ class Forget(function.Function):
         return outs
 
     def forward(self, inputs):
-        with function.no_backprop_mode():
-            xs = [variable.Variable(x) for x in inputs]
-            outs = self._call_func(xs)
+        xs = [variable.Variable(x, volatile=True) for x in inputs]
+        outs = self._call_func(xs)
         return tuple(out.data for out in outs)
 
     def backward(self, inputs, grads):
-        with function.force_backprop_mode():
-            xs = [variable.Variable(x) for x in inputs]
-            outs = self._call_func(xs)
-            _DummyFunction(grads)(*outs).backward()
+        xs = [variable.Variable(x, volatile=False) for x in inputs]
+        outs = self._call_func(xs)
+        _DummyFunction(grads)(*outs).backward()
         return tuple(x.grad for x in xs)
 
 

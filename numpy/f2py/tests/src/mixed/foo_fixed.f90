@@ -1,1 +1,8 @@
-../../../../../../../../Cellar/numpy/1.13.1_1/lib/python3.6/site-packages/numpy/f2py/tests/src/mixed/foo_fixed.f90
+      module foo_fixed
+      contains
+        subroutine bar12(a)
+!f2py intent(out) a
+          integer a
+          a = 12
+        end subroutine bar12
+      end module foo_fixed

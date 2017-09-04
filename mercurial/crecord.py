@@ -8,7 +8,7 @@
 # This code is based on the Mark Edgington's crecord extension.
 # (Itself based on Bryan O'Sullivan's record extension.)
 
-from __future__ import absolute_import
+
 
 import locale
 import os
@@ -27,7 +27,7 @@ stringio = util.stringio
 
 # This is required for ncurses to display non-ASCII characters in default user
 # locale encoding correctly.  --immerrr
-locale.setlocale(locale.LC_ALL, u'')
+locale.setlocale(locale.LC_ALL, '')
 
 # patch comments based on the git one
 diffhelptext = _("""# To remove '-' lines, make them ' ' lines (context).
@@ -547,7 +547,7 @@ def testchunkselector(testfn, ui, headerlist, operation=None):
     chunkselector = curseschunkselector(headerlist, ui, operation)
     if testfn and os.path.exists(testfn):
         testf = open(testfn)
-        testcommands = map(lambda x: x.rstrip('\n'), testf.readlines())
+        testcommands = [x.rstrip('\n') for x in testf.readlines()]
         testf.close()
         while True:
             if chunkselector.handlekeypressed(testcommands.pop(0), test=True):
@@ -1010,6 +1010,13 @@ class curseschunkselector(object):
     def _getstatuslinesegments(self):
         """-> [str]. return segments"""
         selected = self.currentselecteditem.applied
+        spaceselect = _('space: select')
+        spacedeselect = _('space: deselect')
+        # Format the selected label into a place as long as the longer of the
+        # two possible labels.  This may vary by language.
+        spacelen = max(len(spaceselect), len(spacedeselect))
+        selectedlabel = '%-*s' % (spacelen,
+                                  spacedeselect if selected else spaceselect)
         segments = [
             _headermessages[self.operation],
             '-',
@@ -1017,7 +1024,7 @@ class curseschunkselector(object):
             _('c: confirm'),
             _('q: abort'),
             _('arrow keys: move/expand/collapse'),
-            _('space: deselect') if selected else _('space: select'),
+            selectedlabel,
             _('?: help'),
         ]
         return segments

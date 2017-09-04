@@ -6,6 +6,7 @@ Home-page: https://github.com/explosion/thinc
 Author: Matthew Honnibal
 Author-email: matt@explosion.ai
 License: MIT
+Description-Content-Type: UNKNOWN
 Platform: UNKNOWN
 Classifier: Development Status :: 5 - Production/Stable
 Classifier: Environment :: Console
@@ -29,14 +30,14 @@ Requires-Dist: cytoolz (<0.9,>=0.8)
 Requires-Dist: dill
 Requires-Dist: msgpack-numpy
 Requires-Dist: msgpack-python
-Requires-Dist: murmurhash (<0.29,>=0.28)
+Requires-Dist: murmurhash (>=0.28,<0.29)
 Requires-Dist: numpy (>=1.7)
 Requires-Dist: pathlib (<2.0.0,>=1.0.0)
-Requires-Dist: plac (<1.0.0,>=0.9.6)
+Requires-Dist: plac (>=0.9.6,<1.0.0)
 Requires-Dist: preshed (<2.0.0,>=1.0.0)
 Requires-Dist: six (<2.0.0,>=1.10.0)
 Requires-Dist: termcolor
-Requires-Dist: tqdm (>=4.10.0,<5.0.0)
+Requires-Dist: tqdm (<5.0.0,>=4.10.0)
 Requires-Dist: wrapt
 
 Thinc: Practical Machine Learning for NLP in Python

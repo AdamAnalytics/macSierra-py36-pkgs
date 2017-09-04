@@ -6,7 +6,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import errno
 import hashlib
@@ -62,21 +62,25 @@ def _collectfiles(repo, striprev):
     """find out the filelogs affected by the strip"""
     files = set()
 
-    for x in xrange(striprev, len(repo)):
+    for x in range(striprev, len(repo)):
         files.update(repo[x].files())
 
     return sorted(files)
 
+def _collectrevlog(revlog, striprev):
+    _, brokenset = revlog.getstrippoint(striprev)
+    return [revlog.linkrev(r) for r in brokenset]
+
+def _collectmanifest(repo, striprev):
+    return _collectrevlog(repo.manifestlog._revlog, striprev)
+
 def _collectbrokencsets(repo, files, striprev):
     """return the changesets which will be broken by the truncation"""
     s = set()
-    def collectone(revlog):
-        _, brokenset = revlog.getstrippoint(striprev)
-        s.update([revlog.linkrev(r) for r in brokenset])
 
-    collectone(repo.manifestlog._revlog)
+    s.update(_collectmanifest(repo, striprev))
     for fname in files:
-        collectone(repo.file(fname))
+        s.update(_collectrevlog(repo.file(fname), striprev))
 
     return s
 
@@ -174,22 +178,19 @@ def strip(ui, repo, nodelist, backup=True, topic='backup'):
         tmpbundlefile = _bundle(repo, savebases, saveheads, node, 'temp',
                                 compress=False, obsolescence=False)
 
-    mfst = repo.manifestlog._revlog
-
     try:
         with repo.transaction("strip") as tr:
             offset = len(tr.entries)
 
             tr.startgroup()
             cl.strip(striprev, tr)
-            mfst.strip(striprev, tr)
-            striptrees(repo, tr, striprev, files)
+            stripmanifest(repo, striprev, tr, files)
 
             for fn in files:
                 repo.file(fn).strip(striprev, tr)
             tr.endgroup()
 
-            for i in xrange(offset, len(tr.entries)):
+            for i in range(offset, len(tr.entries)):
                 file, troffset, ignore = tr.entries[i]
                 with repo.svfs(file, 'a', checkambig=True) as fp:
                     fp.truncate(troffset)
@@ -309,6 +310,11 @@ def delayedstrip(ui, repo, nodelist, topic=None):
     if topic:
         callback.topic = topic
     callback.addnodes(nodelist)
+
+def stripmanifest(repo, striprev, tr, files):
+    revlog = repo.manifestlog._revlog
+    revlog.strip(striprev, tr)
+    striptrees(repo, tr, striprev, files)
 
 def striptrees(repo, tr, striprev, files):
     if 'treemanifest' in repo.requirements: # safe but unnecessary

@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import difflib
 import errno
@@ -397,7 +397,7 @@ def annotate(ui, repo, *pats, **opts):
                 formats.append(['%s' for x in l])
             pieces.append(l)
 
-        for f, p, l in zip(zip(*formats), zip(*pieces), lines):
+        for f, p, l in zip(list(zip(*formats)), list(zip(*pieces)), lines):
             fm.startitem()
             fm.write(fields, "".join(f), *p)
             fm.write('line', ": %s", l[1])
@@ -917,6 +917,9 @@ def bookmark(ui, repo, *names, **opts):
     diverged, a new 'divergent bookmark' of the form 'name@path' will
     be created. Using :hg:`merge` will resolve the divergence.
 
+    Specifying bookmark as '.' to -m or -d options is equivalent to specifying
+    the active bookmark's name.
+
     A bookmark named '@' has the special property that :hg:`clone` will
     check it out by default if it exists.
 
@@ -962,12 +965,14 @@ def bookmark(ui, repo, *names, **opts):
     if delete or rename or names or inactive:
         with repo.wlock(), repo.lock(), repo.transaction('bookmark') as tr:
             if delete:
+                names = pycompat.maplist(repo._bookmarks.expandname, names)
                 bookmarks.delete(repo, tr, names)
             elif rename:
                 if not names:
                     raise error.Abort(_("new bookmark name required"))
                 elif len(names) > 1:
                     raise error.Abort(_("only one new bookmark name allowed"))
+                rename = repo._bookmarks.expandname(rename)
                 bookmarks.rename(repo, tr, rename, names[0], force, inactive)
             elif names:
                 bookmarks.addbookmarks(repo, tr, names, rev, force, inactive)
@@ -1188,14 +1193,14 @@ def bundle(ui, repo, fname, dest=None, **opts):
             raise error.Abort(_("--base is incompatible with specifying "
                                "a destination"))
         common = [repo.lookup(rev) for rev in base]
-        heads = revs and map(repo.lookup, revs) or None
+        heads = revs and list(map(repo.lookup, revs)) or None
         outgoing = discovery.outgoing(repo, common, heads)
     else:
         dest = ui.expandpath(dest or 'default-push', dest or 'default')
         dest, branches = hg.parseurl(dest, opts.get('branch'))
         other = hg.peer(repo, opts, dest)
         revs, checkout = hg.addbranchrevs(repo, repo, branches, revs)
-        heads = revs and map(repo.lookup, revs) or revs
+        heads = revs and list(map(repo.lookup, revs)) or revs
         outgoing = discovery.findcommonoutgoing(repo, other,
                                                 onlyheads=heads,
                                                 force=opts.get('force'),
@@ -1227,7 +1232,7 @@ def bundle(ui, repo, fname, dest=None, **opts):
 
 
     contentopts = {'cg.version': cgversion}
-    if repo.ui.configbool('experimental', 'evolution.bundle-obsmarker'):
+    if repo.ui.configbool('experimental', 'stabilization.bundle-obsmarker'):
         contentopts['obsolescence'] = True
     if repo.ui.configbool('experimental', 'bundle-phases'):
         contentopts['phases'] = True
@@ -1644,8 +1649,8 @@ def config(ui, repo, *values, **opts):
                 samplehgrc = uimod.samplehgrcs['user']
 
             f = paths[0]
-            fp = open(f, "w")
-            fp.write(samplehgrc)
+            fp = open(f, "wb")
+            fp.write(util.tonativeeol(samplehgrc))
             fp.close()
 
         editor = ui.geteditor()
@@ -1728,7 +1733,7 @@ def copy(ui, repo, *pats, **opts):
 @command('debugcommands', [], _('[COMMAND]'), norepo=True)
 def debugcommands(ui, cmd='', *args):
     """list all available commands and options"""
-    for cmd, vals in sorted(table.iteritems()):
+    for cmd, vals in sorted(table.items()):
         cmd = cmd.split('|')[0].strip('^')
         opts = ', '.join([i[1] for i in vals[1]])
         ui.write('%s: %s\n' % (cmd, opts))
@@ -1758,7 +1763,7 @@ def debugcomplete(ui, cmd='', **opts):
 
     cmdlist, unused_allcmds = cmdutil.findpossible(cmd, table)
     if ui.verbose:
-        cmdlist = [' '.join(c[0]) for c in cmdlist.values()]
+        cmdlist = [' '.join(c[0]) for c in list(cmdlist.values())]
     ui.write("%s\n" % "\n".join(sorted(cmdlist)))
 
 @command('^diff',
@@ -2398,15 +2403,15 @@ def grep(ui, repo, pattern, *pats, **opts):
         sm = difflib.SequenceMatcher(None, a, b)
         for tag, alo, ahi, blo, bhi in sm.get_opcodes():
             if tag == 'insert':
-                for i in xrange(blo, bhi):
+                for i in range(blo, bhi):
                     yield ('+', b[i])
             elif tag == 'delete':
-                for i in xrange(alo, ahi):
+                for i in range(alo, ahi):
                     yield ('-', a[i])
             elif tag == 'replace':
-                for i in xrange(alo, ahi):
+                for i in range(alo, ahi):
                     yield ('-', a[i])
-                for i in xrange(blo, bhi):
+                for i in range(blo, bhi):
                     yield ('+', b[i])
 
     def display(fm, fn, ctx, pstates, states):
@@ -2748,7 +2753,7 @@ def identify(ui, repo, source=None, rev=None,
 
             if 'bookmarks' in peer.listkeys('namespaces'):
                 hexremoterev = hex(remoterev)
-                bms = [bm for bm, bmr in peer.listkeys('bookmarks').iteritems()
+                bms = [bm for bm, bmr in peer.listkeys('bookmarks').items()
                        if bmr == hexremoterev]
 
             return sorted(bms)
@@ -3335,7 +3340,9 @@ def log(ui, repo, *pats, **opts):
     revisions.
 
     See :hg:`help templates` for more about pre-packaged styles and
-    specifying custom templates.
+    specifying custom templates. The default template used by the log
+    command can be customized via the ``ui.logtemplate`` configuration
+    setting.
 
     Returns 0 on success.
 
@@ -3686,10 +3693,10 @@ def paths(ui, repo, search=None, **opts):
     opts = pycompat.byteskwargs(opts)
     ui.pager('paths')
     if search:
-        pathitems = [(name, path) for name, path in ui.paths.iteritems()
+        pathitems = [(name, path) for name, path in ui.paths.items()
                      if name == search]
     else:
-        pathitems = sorted(ui.paths.iteritems())
+        pathitems = sorted(ui.paths.items())
 
     fm = ui.formatter('paths', opts)
     if fm.isplain():
@@ -3970,6 +3977,7 @@ def pull(ui, repo, source="default", **opts):
     ('b', 'branch', [],
      _('a specific branch you would like to push'), _('BRANCH')),
     ('', 'new-branch', False, _('allow pushing a new branch')),
+    ('', 'pushvars', [], _('variables that can be sent to server (ADVANCED)')),
     ] + remoteopts,
     _('[-f] [-r REV]... [-e CMD] [--remotecmd CMD] [DEST]'))
 def push(ui, repo, dest=None, **opts):
@@ -4006,6 +4014,25 @@ def push(ui, repo, dest=None, **opts):
 
     Please see :hg:`help urls` for important details about ``ssh://``
     URLs. If DESTINATION is omitted, a default path will be used.
+
+    .. container:: verbose
+
+        The --pushvars option sends strings to the server that become
+        environment variables prepended with ``HG_USERVAR_``. For example,
+        ``--pushvars ENABLE_FEATURE=true``, provides the server side hooks with
+        ``HG_USERVAR_ENABLE_FEATURE=true`` as part of their environment.
+
+        pushvars can provide for user-overridable hooks as well as set debug
+        levels. One example is having a hook that blocks commits containing
+        conflict markers, but enables the user to override the hook if the file
+        is using conflict markers for testing purposes or the file format has
+        strings that look like conflict markers.
+
+        By default, servers will ignore `--pushvars`. To enable it add the
+        following to your configuration file::
+
+            [push]
+            pushvars.server = true
 
     Returns 0 if push was successful, 1 if nothing to push.
     """
@@ -4059,10 +4086,14 @@ def push(ui, repo, dest=None, **opts):
                 return not result
     finally:
         del repo._subtoppath
+
+    opargs = dict(opts.get('opargs', {})) # copy opargs since we may mutate it
+    opargs.setdefault('pushvars', []).extend(opts.get('pushvars', []))
+
     pushop = exchange.push(repo, other, opts.get('force'), revs=revs,
                            newbranch=opts.get('new_branch'),
                            bookmarks=opts.get('bookmark', ()),
-                           opargs=opts.get('opargs'))
+                           opargs=opargs)
 
     result = not pushop.cgresult
 
@@ -4673,6 +4704,19 @@ def status(ui, repo, *pats, **opts):
       files are not considered while tersing until 'i' is there in --terse value
       or the --ignored option is used.
 
+      --verbose option shows more context about the state of the repo
+      like the repository is in unfinised merge, shelve, rebase state etc.
+      You can have this behaviour turned on by default by following config:
+
+      [commands]
+      status.verbose = true
+
+      You can also skip some states like bisect by adding following in
+      configuration file.
+
+      [commands]
+      status.skipstates = bisect
+
       Examples:
 
       - show changes in the working directory relative to a
@@ -4741,7 +4785,7 @@ def status(ui, repo, *pats, **opts):
     if terse:
         stat = cmdutil.tersestatus(repo.root, stat, terse,
                                     repo.dirstate._ignore, opts.get('ignored'))
-    changestates = zip(states, pycompat.iterbytestr('MAR!?IC'), stat)
+    changestates = list(zip(states, pycompat.iterbytestr('MAR!?IC'), stat))
 
     if (opts.get('all') or opts.get('copies')
         or ui.configbool('ui', 'statuscopies')) and not opts.get('no_status'):
@@ -4762,6 +4806,10 @@ def status(ui, repo, *pats, **opts):
                 if f in copy:
                     fm.write("copy", '  %s' + end, repo.pathto(copy[f], cwd),
                              label='status.copied')
+
+    if ((ui.verbose or ui.configbool('commands', 'status.verbose'))
+        and not ui.plain()):
+        cmdutil.morestatus(repo, fm)
     fm.end()
 
 @command('^summary|sum',
@@ -4812,10 +4860,11 @@ def summary(ui, repo, **opts):
                 ui.write(_(' (no revision checked out)'))
         if p.obsolete():
             ui.write(_(' (obsolete)'))
-        if p.troubled():
+        if p.isunstable():
+            instabilities = (ui.label(instability, 'trouble.%s' % instability)
+                             for instability in p.instabilities())
             ui.write(' ('
-                     + ', '.join(ui.label(trouble, 'trouble.%s' % trouble)
-                                 for trouble in p.troubles())
+                     + ', '.join(instabilities)
                      + ')')
         ui.write('\n')
         if p.description():
@@ -4849,7 +4898,7 @@ def summary(ui, repo, **opts):
 
     c = repo.dirstate.copies()
     copied, renamed = [], []
-    for d, s in c.iteritems():
+    for d, s in c.items():
         if s in status.removed:
             status.removed.remove(s)
             renamed.append(d)
@@ -4937,13 +4986,13 @@ def summary(ui, repo, **opts):
         ui.status(_('phases: %s\n') % ', '.join(t))
 
     if obsolete.isenabled(repo, obsolete.createmarkersopt):
-        for trouble in ("unstable", "divergent", "bumped"):
+        for trouble in ("orphan", "contentdivergent", "phasedivergent"):
             numtrouble = len(repo.revs(trouble + "()"))
             # We write all the possibilities to ease translation
             troublemsg = {
-               "unstable": _("unstable: %d changesets"),
-               "divergent": _("divergent: %d changesets"),
-               "bumped": _("bumped: %d changesets"),
+               "orphan": _("orphan: %d changesets"),
+               "contentdivergent": _("content-divergent: %d changesets"),
+               "phasedivergent": _("phase-divergent: %d changesets"),
             }
             if numtrouble > 0:
                 ui.status(troublemsg[trouble] % numtrouble + "\n")

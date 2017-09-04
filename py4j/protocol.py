@@ -73,6 +73,7 @@ PYTHON_PROXY_TYPE = "f"
 # Protocol
 END = "e"
 ERROR = "x"
+FATAL_ERROR = "z"
 SUCCESS = "y"
 RETURN_MESSAGE = "!"
 
@@ -213,7 +214,7 @@ def smart_decode(s):
 
 
 def encode_float(float_value):
-    float_str = smart_decode(float_value)
+    float_str = smart_decode(repr(float_value))
     if float_str == "-inf":
         float_str = JAVA_NEGATIVE_INFINITY
     elif float_str == "inf":
@@ -338,6 +339,10 @@ def is_error(answer):
         return (True, None)
     else:
         return (False, None)
+
+
+def is_fatal_error(answer):
+    return answer and len(answer) > 0 and answer[0] == FATAL_ERROR
 
 
 def register_output_converter(output_type, converter):

@@ -5157,6 +5157,10 @@ class CallNode(ExprNode):
         elif type and type.is_cpp_class:
             self.args = [ arg.analyse_types(env) for arg in self.args ]
             constructor = type.scope.lookup("<init>")
+            if not constructor:
+                error(self.function.pos, "no constructor found for C++  type '%s'" % self.function.name)
+                self.type = error_type
+                return self
             self.function = RawCNameExprNode(self.function.pos, constructor.type)
             self.function.entry = constructor
             self.function.set_cname(type.empty_declaration_code())
@@ -9990,7 +9994,10 @@ class AmpersandNode(CUnopNode):
                 self.error("Taking address of non-lvalue (type %s)" % argtype)
             return self
         if argtype.is_pyobject:
-            self.error("Cannot take address of Python variable")
+            self.error("Cannot take address of Python %s" % (
+                "variable '%s'" % self.operand.name if self.operand.is_name else
+                "object attribute '%s'" % self.operand.attribute if self.operand.is_attribute else
+                "object"))
             return self
         if not argtype.is_cpp_class or not self.type:
             self.type = PyrexTypes.c_ptr_type(argtype)

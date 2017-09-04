@@ -26,23 +26,22 @@ class Pad(function.Function):
         type_check.expect(x_type.dtype.kind == 'f')
 
     def forward(self, inputs):
-        self.retain_inputs(())
-        self._in_shape = inputs[0].shape
         xp = cuda.get_array_module(*inputs)
         return xp.pad(inputs[0], self.pad_width, mode=self.mode,
                       **self.keywords),
 
     def backward(self, inputs, grads):
-        xp = cuda.get_array_module(*grads)
+        xp = cuda.get_array_module(*inputs)
         gy = grads[0]
-        ndims = len(self._in_shape)
+        array = inputs[0]
+        ndims = array.ndim
         if self.pad_bw.ndim == 1:
             self.pad_bw = numpy.tile(self.pad_bw, (ndims, 1))
         for i in range(ndims):
             gy = xp.take(gy,
                          indices=numpy.arange(self.pad_bw[i][0],
                                               self.pad_bw[i][0]
-                                              + self._in_shape[i]),
+                                              + array.shape[i]),
                          axis=i)
         return gy,
 
@@ -57,11 +56,10 @@ def pad(x, pad_width, mode, **keywords):
             Number of values padded to the edges of each axis.
         mode (str):
             Specifies how the function fills the periphery of the array.
-            The mode is passed to :func:`numpy.pad` or :func:`cupy.pad`.
-            If it is ``'constant'``, the input is padded by a constant value
-            specified by ``constant_values``.
+            `constant`
+                Pads with a constant values.
         constant_values (int or array-like):
-            Constant values to fill the periphery in the ``'constant'`` mode.
+            The values are padded for each axis.
 
     Returns:
         ~chainer.Variable: Output variable.

@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import cgi
 import struct
@@ -55,7 +55,7 @@ class webproto(wireproto.abstractserverproto):
         for k in keys:
             if k == '*':
                 star = {}
-                for key in knownargs.keys():
+                for key in list(knownargs.keys()):
                     if key != 'cmd' and key not in keys:
                         star[key] = knownargs[key][0]
                 data['*'] = star
@@ -75,6 +75,9 @@ class webproto(wireproto.abstractserverproto):
         return args
     def getfile(self, fp):
         length = int(self.req.env['CONTENT_LENGTH'])
+        # If httppostargs is used, we need to read Content-Length
+        # minus the amount that was consumed by args.
+        length -= int(self.req.env.get('HTTP_X_HGARGS_POST', 0))
         for s in util.filechunkiter(self.req, limit=length):
             fp.write(s)
     def redirect(self):

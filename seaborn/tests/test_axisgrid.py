@@ -475,7 +475,7 @@ class TestFacetGrid(PlotTestCase):
 
         x, y = np.arange(10), np.arange(10)
         df = pd.DataFrame(np.c_[x, y], columns=["x", "y"])
-        g = ag.FacetGrid(df).map(pointplot, "x", "y")
+        g = ag.FacetGrid(df).map(pointplot, "x", "y", order=x)
         g.set_xticklabels(step=2)
         got_x = [int(l.get_text()) for l in g.axes[0, 0].get_xticklabels()]
         npt.assert_array_equal(x[::2], got_x)
@@ -727,6 +727,14 @@ class TestFacetGrid(PlotTestCase):
 
         nt.assert_equal(g.axes.shape, (len(df['a'].cat.categories),))
 
+    def test_categorical_warning(self):
+
+        g = ag.FacetGrid(self.df, col="b")
+        with warnings.catch_warnings():
+            warnings.resetwarnings()
+            warnings.simplefilter("always")
+            npt.assert_warns(UserWarning, g.map, pointplot, "b", "x")
+
 
 class TestPairGrid(PlotTestCase):
 
@@ -952,6 +960,17 @@ class TestPairGrid(PlotTestCase):
 
         for ax in g2.diag_axes:
             for line in ax.lines:
+                nt.assert_equals(line.get_color(), color)
+
+    @skipif(old_matplotlib)
+    def test_map_diag_palette(self):
+
+        pal = color_palette(n_colors=len(self.df.a.unique()))
+        g = ag.PairGrid(self.df, hue="a")
+        g.map_diag(kdeplot)
+
+        for ax in g.diag_axes:
+            for line, color in zip(ax.lines, pal):
                 nt.assert_equals(line.get_color(), color)
 
     @skipif(old_matplotlib)

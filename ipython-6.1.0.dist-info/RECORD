@@ -310,10 +310,10 @@ ipython-6.1.0.dist-info/WHEEL,sha256=rNo05PbNqwnXiIHFsYm0m22u4Zm6YJtugFG2THx4w3g
 ipython-6.1.0.dist-info/entry_points.txt,sha256=KT9gSuNYhuFMuzUiLcoBtAFuhQJqgk8KHzCD6Or8APY,340
 ipython-6.1.0.dist-info/metadata.json,sha256=oYKIFnbxGkrcqu-cvFSz2sQy70CQJvW_A_P0jwPwM0g,2957
 ipython-6.1.0.dist-info/top_level.txt,sha256=PKjvHtNCBZ9EHTmd2mwJ1J_k3j0F6D1lTFzIcJFFPEU,8
-../../../bin/iptest,sha256=TRgOXMAVJVRfYUuuMeOfmGnZd17brmb-bEeMYspbnYE,255
-../../../bin/iptest3,sha256=TRgOXMAVJVRfYUuuMeOfmGnZd17brmb-bEeMYspbnYE,255
-../../../bin/ipython,sha256=y_Znm9j0ga-qPoybez0qK6lwKnIbRcwLbMwTZktGwkE,248
-../../../bin/ipython3,sha256=y_Znm9j0ga-qPoybez0qK6lwKnIbRcwLbMwTZktGwkE,248
+../../../bin/iptest,sha256=NHlY70Y3-AjjXG8afBBX4yzEiPZGFpvbjtgKoQpKQWk,282
+../../../bin/iptest3,sha256=NHlY70Y3-AjjXG8afBBX4yzEiPZGFpvbjtgKoQpKQWk,282
+../../../bin/ipython,sha256=wNRaurS8xhNzBnd-QmTCZBPtjyI4QwxoIHRD1erWV-E,275
+../../../bin/ipython3,sha256=wNRaurS8xhNzBnd-QmTCZBPtjyI4QwxoIHRD1erWV-E,275
 ipython-6.1.0.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
 IPython/__pycache__/__init__.cpython-36.pyc,,
 IPython/__pycache__/__main__.cpython-36.pyc,,

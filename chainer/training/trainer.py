@@ -278,11 +278,10 @@ class Trainer(object):
 
         self._start_at = time.time()
 
-        # invoke initializer of each extension
+        # invoke extensions before the loop
         for _, entry in extensions:
-            initializer = getattr(entry.extension, 'initialize', None)
-            if initializer:
-                initializer(self)
+            if entry.invoke_before_training:
+                entry.extension(self)
 
         update = self.updater.update
         reporter = self.reporter

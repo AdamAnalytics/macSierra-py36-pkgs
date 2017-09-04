@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import filecmp
 import os
@@ -21,6 +21,7 @@ from . import (
     formatter,
     match,
     pycompat,
+    registrar,
     scmutil,
     simplemerge,
     tagmerge,
@@ -44,10 +45,12 @@ internals = {}
 # Merge tools to document.
 internalsdoc = {}
 
+internaltool = registrar.internalmerge()
+
 # internal tool merge types
-nomerge = None
-mergeonly = 'mergeonly'  # just the full merge, no premerge
-fullmerge = 'fullmerge'  # both premerge and merge
+nomerge = internaltool.nomerge
+mergeonly = internaltool.mergeonly # just the full merge, no premerge
+fullmerge = internaltool.fullmerge # both premerge and merge
 
 _localchangedotherdeletedmsg = _(
     "local%(l)s changed %(fd)s which other%(o)s deleted\n"
@@ -103,21 +106,6 @@ class absentfilectx(object):
 
     def isabsent(self):
         return True
-
-def internaltool(name, mergetype, onfailure=None, precheck=None):
-    '''return a decorator for populating internal merge tool table'''
-    def decorator(func):
-        fullname = ':' + name
-        func.__doc__ = (pycompat.sysstr("``%s``\n" % fullname)
-                        + func.__doc__.strip())
-        internals[fullname] = func
-        internals['internal:' + name] = func
-        internalsdoc[fullname] = func
-        func.mergetype = mergetype
-        func.onfailure = onfailure
-        func.precheck = precheck
-        return func
-    return decorator
 
 def _findtool(ui, tool):
     if tool in internals:
@@ -202,8 +190,8 @@ def _picktool(repo, ui, path, binary, symlink, changedelete):
             tools[t] = int(_toolstr(ui, t, "priority", "0"))
         if _toolbool(ui, t, "disabled", False):
             disabled.add(t)
-    names = tools.keys()
-    tools = sorted([(-p, tool) for tool, p in tools.items()
+    names = list(tools.keys())
+    tools = sorted([(-p, tool) for tool, p in list(tools.items())
                     if tool not in disabled])
     uimerge = ui.config("ui", "merge")
     if uimerge:
@@ -353,7 +341,8 @@ def _premerge(repo, fcd, fco, fca, toolconf, files, labels=None):
                 labels = _defaultconflictlabels
             if len(labels) < 3:
                 labels.append('base')
-        r = simplemerge.simplemerge(ui, a, b, c, quiet=True, label=labels)
+        r = simplemerge.simplemerge(ui, fcd, fca, fco,
+                                    quiet=True, label=labels, repo=repo)
         if not r:
             ui.debug(" premerge successful\n")
             return 0
@@ -383,7 +372,8 @@ def _merge(repo, mynode, orig, fcd, fco, fca, toolconf, files, labels, mode):
 
     ui = repo.ui
 
-    r = simplemerge.simplemerge(ui, a, b, c, label=labels, mode=mode)
+    r = simplemerge.simplemerge(ui, fcd, fca, fco,
+                                label=labels, mode=mode, repo=repo)
     return True, r, False
 
 @internaltool('union', fullmerge,
@@ -435,8 +425,9 @@ def _imergeauto(repo, mynode, orig, fcd, fco, fca, toolconf, files,
     assert localorother is not None
     tool, toolpath, binary, symlink = toolconf
     a, b, c, back = files
-    r = simplemerge.simplemerge(repo.ui, a, b, c, label=labels,
-                                localorother=localorother)
+    r = simplemerge.simplemerge(repo.ui, fcd, fca, fco,
+                                label=labels, localorother=localorother,
+                                repo=repo)
     return True, r
 
 @internaltool('merge-local', mergeonly, precheck=_mergecheck)
@@ -743,5 +734,17 @@ def premerge(repo, mynode, orig, fcd, fco, fca, labels=None):
 def filemerge(repo, mynode, orig, fcd, fco, fca, labels=None):
     return _filemerge(False, repo, mynode, orig, fcd, fco, fca, labels=labels)
 
+def loadinternalmerge(ui, extname, registrarobj):
+    """Load internal merge tool from specified registrarobj
+    """
+    for name, func in registrarobj._table.items():
+        fullname = ':' + name
+        internals[fullname] = func
+        internals['internal:' + name] = func
+        internalsdoc[fullname] = func
+
+# load built-in merge tools explicitly to setup internalsdoc
+loadinternalmerge(None, None, internaltool)
+
 # tell hggettext to extract docstrings from these functions:
-i18nfunctions = internals.values()
+i18nfunctions = list(internals.values())

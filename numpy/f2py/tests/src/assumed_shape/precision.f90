@@ -1,1 +1,4 @@
-../../../../../../../../Cellar/numpy/1.13.1_1/lib/python3.6/site-packages/numpy/f2py/tests/src/assumed_shape/precision.f90
+module precision
+  integer, parameter :: rk = selected_real_kind(8)
+  integer, parameter :: ik = selected_real_kind(4)
+end module

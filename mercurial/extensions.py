@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import imp
 import inspect
@@ -19,7 +19,6 @@ from .i18n import (
 from . import (
     cmdutil,
     configitems,
-    encoding,
     error,
     pycompat,
     util,
@@ -60,7 +59,7 @@ def find(name):
     try:
         mod = _extensions[name]
     except KeyError:
-        for k, v in _extensions.iteritems():
+        for k, v in _extensions.items():
             if k.endswith('.' + name) or k.endswith('/' + name):
                 mod = v
                 break
@@ -114,16 +113,11 @@ def _importext(name, path=None, reportfunc=None):
                 mod = _importh(name)
     return mod
 
-def _forbytes(inst):
-    """Portably format an import error into a form suitable for
-    %-formatting into bytestrings."""
-    return encoding.strtolocal(str(inst))
-
 def _reportimporterror(ui, err, failed, next):
     # note: this ui.debug happens before --debug is processed,
     #       Use --config ui.debug=1 to see them.
     ui.debug('could not import %s (%s): trying %s\n'
-             % (failed, _forbytes(err), next))
+             % (failed, util.forcebytestr(err), next))
     if ui.debugflag:
         ui.traceback()
 
@@ -132,7 +126,7 @@ _cmdfuncattrs = ('norepo', 'optionalrepo', 'inferrepo')
 
 def _validatecmdtable(ui, cmdtable):
     """Check if extension commands have required attributes"""
-    for c, e in cmdtable.iteritems():
+    for c, e in cmdtable.items():
         f = e[0]
         if getattr(f, '_deprecatedregistrar', False):
             ui.deprecwarn("cmdutil.command is deprecated, use "
@@ -180,7 +174,7 @@ def _runuisetup(name, ui):
             uisetup(ui)
         except Exception as inst:
             ui.traceback()
-            msg = _forbytes(inst)
+            msg = util.forcebytestr(inst)
             ui.warn(_("*** failed to set up extension %s: %s\n") % (name, msg))
             return False
     return True
@@ -192,12 +186,16 @@ def _runextsetup(name, ui):
             try:
                 extsetup(ui)
             except TypeError:
-                if inspect.getargspec(extsetup).args:
+                # Try to use getfullargspec (Python 3) first, and fall
+                # back to getargspec only if it doesn't exist so as to
+                # avoid warnings.
+                if getattr(inspect, 'getfullargspec',
+                           getattr(inspect, 'getargspec'))(extsetup).args:
                     raise
                 extsetup() # old extsetup with no ui argument
         except Exception as inst:
             ui.traceback()
-            msg = _forbytes(inst)
+            msg = util.forcebytestr(inst)
             ui.warn(_("*** failed to set up extension %s: %s\n") % (name, msg))
             return False
     return True
@@ -215,7 +213,7 @@ def loadall(ui, whitelist=None):
         try:
             load(ui, name, path)
         except Exception as inst:
-            msg = _forbytes(inst)
+            msg = util.forcebytestr(inst)
             if path:
                 ui.warn(_("*** failed to import extension %s from %s: %s\n")
                         % (name, path, msg))
@@ -256,6 +254,7 @@ def loadall(ui, whitelist=None):
     from . import (
         color,
         commands,
+        filemerge,
         fileset,
         revset,
         templatefilters,
@@ -274,6 +273,7 @@ def loadall(ui, whitelist=None):
         ('colortable', color, 'loadcolortable'),
         ('configtable', configitems, 'loadconfigtable'),
         ('filesetpredicate', fileset, 'loadpredicate'),
+        ('internalmerge', filemerge, 'loadinternalmerge'),
         ('revsetpredicate', revset, 'loadpredicate'),
         ('templatefilter', templatefilters, 'loadfilter'),
         ('templatefunc', templater, 'loadfunction'),
@@ -361,7 +361,7 @@ def wrapcommand(table, command, wrapper, synopsis=None, docstring=None):
     '''
     assert callable(wrapper)
     aliases, entry = cmdutil.findcmd(command, table)
-    for alias, e in table.iteritems():
+    for alias, e in table.items():
         if e is entry:
             key = alias
             break
@@ -384,6 +384,7 @@ def wrapfilecache(cls, propname, wrapper):
 
     These can't be wrapped using the normal wrapfunction.
     """
+    propname = pycompat.sysstr(propname)
     assert callable(wrapper)
     for currcls in cls.__mro__:
         if propname in currcls.__dict__:
@@ -395,8 +396,8 @@ def wrapfilecache(cls, propname, wrapper):
             break
 
     if currcls is object:
-        raise AttributeError(
-            _("type '%s' has no property '%s'") % (cls, propname))
+        raise AttributeError(r"type '%s' has no property '%s'" % (
+            cls, propname))
 
 def wrapfunction(container, funcname, wrapper):
     '''Wrap the function named funcname in container
@@ -502,7 +503,7 @@ def _disabledpaths(strip_init=False):
         if name in exts or name in _order or name == '__init__':
             continue
         exts[name] = path
-    for name, path in _disabledextensions.iteritems():
+    for name, path in _disabledextensions.items():
         # If no path was provided for a disabled extension (e.g. "color=!"),
         # don't replace the path we already found by the scan above.
         if path:
@@ -561,7 +562,7 @@ def disabled():
     try:
         from hgext import __index__
         return dict((name, gettext(desc))
-                    for name, desc in __index__.docs.iteritems()
+                    for name, desc in __index__.docs.items()
                     if name not in _order)
     except (ImportError, AttributeError):
         pass
@@ -571,7 +572,7 @@ def disabled():
         return {}
 
     exts = {}
-    for name, path in paths.iteritems():
+    for name, path in paths.items():
         doc = _disabledhelp(path)
         if doc:
             exts[name] = doc.splitlines()[0]
@@ -630,7 +631,7 @@ def disabledcmd(ui, cmd, strict=False):
         ext = findcmd(cmd, cmd, path)
     if not ext:
         # otherwise, interrogate each extension until there's a match
-        for name, path in paths.iteritems():
+        for name, path in paths.items():
             ext = findcmd(cmd, name, path)
             if ext:
                 break
@@ -652,7 +653,7 @@ def enabled(shortname=True):
 
 def notloaded():
     '''return short names of extensions that failed to load'''
-    return [name for name, mod in _extensions.iteritems() if mod is None]
+    return [name for name, mod in _extensions.items() if mod is None]
 
 def moduleversion(module):
     '''return version information from given module as a string'''

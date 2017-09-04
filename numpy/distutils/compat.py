@@ -1,1 +1,10 @@
-../../../../../Cellar/numpy/1.13.1_1/lib/python3.6/site-packages/numpy/distutils/compat.py
+"""Small modules to cope with python 2 vs 3 incompatibilities inside
+numpy.distutils
+
+"""
+from __future__ import division, absolute_import, print_function
+
+import sys
+
+def get_exception():
+    return sys.exc_info()[1]

@@ -7,6 +7,7 @@ Module with tests for the execute preprocessor.
 # Copyright (c) IPython Development Team.
 # Distributed under the terms of the Modified BSD License.
 
+from base64 import b64encode, b64decode
 import copy
 import glob
 import io
@@ -15,19 +16,30 @@ import re
 
 import nbformat
 import sys
+import pytest
 
 from .base import PreprocessorTestsBase
 from ..execute import ExecutePreprocessor, CellExecutionError, executenb
 
 from nbconvert.filters import strip_ansi
-from nose.tools import assert_raises, assert_in
 from testpath import modified_env
+from ipython_genutils.py3compat import string_types
 
 addr_pat = re.compile(r'0x[0-9a-f]{7,9}')
+ipython_input_pat = re.compile(r'<ipython-input-\d+-[0-9a-f]+>')
 current_dir = os.path.dirname(__file__)
 
+def _normalize_base64(b64_text):
+    # if it's base64, pass it through b64 decode/encode to avoid
+    # equivalent values from being considered unequal
+    try:
+        return b64encode(b64decode(b64_text.encode('ascii'))).decode('ascii')
+    except (ValueError, TypeError):
+        return b64_text
+    
 class TestExecute(PreprocessorTestsBase):
     """Contains test functions for execute.py"""
+    maxDiff = None
 
     @staticmethod
     def normalize_output(output):
@@ -42,10 +54,14 @@ class TestExecute(PreprocessorTestsBase):
         if 'text/plain' in output.get('data', {}):
             output['data']['text/plain'] = \
                 re.sub(addr_pat, '<HEXADDR>', output['data']['text/plain'])
+        for key, value in output.get('data', {}).items():
+            if isinstance(value, string_types):
+                output['data'][key] = _normalize_base64(value)
         if 'traceback' in output:
-            tb = []
-            for line in output['traceback']:
-                tb.append(strip_ansi(line))
+            tb = [
+                re.sub(ipython_input_pat, '<IPY-INPUT>', strip_ansi(line))
+                for line in output['traceback']
+            ]
             output['traceback'] = tb
 
         return output
@@ -157,7 +173,8 @@ class TestExecute(PreprocessorTestsBase):
         except NameError:
             exception = RuntimeError
 
-        assert_raises(exception, self.run_notebook, filename, dict(timeout=1), res)
+        with pytest.raises(exception):
+            self.run_notebook(filename, dict(timeout=1), res)
 
     def test_timeout_func(self):
         """Check that an error is raised when a computation times out"""
@@ -173,7 +190,8 @@ class TestExecute(PreprocessorTestsBase):
         def timeout_func(source):
             return 10
 
-        assert_raises(exception, self.run_notebook, filename, dict(timeout_func=timeout_func), res)
+        with pytest.raises(exception):
+            self.run_notebook(filename, dict(timeout_func=timeout_func), res)
 
     def test_allow_errors(self):
         """
@@ -183,14 +201,13 @@ class TestExecute(PreprocessorTestsBase):
         filename = os.path.join(current_dir, 'files', 'Skip Exceptions.ipynb')
         res = self.build_resources()
         res['metadata']['path'] = os.path.dirname(filename)
-        with assert_raises(CellExecutionError) as exc:
+        with pytest.raises(CellExecutionError) as exc:
             self.run_notebook(filename, dict(allow_errors=False), res)
-        self.assertIsInstance(str(exc.exception), str)
+        self.assertIsInstance(str(exc.value), str)
         if sys.version_info >= (3, 0):
-            assert_in(u"# üñîçø∂é", str(exc.exception))
+            assert u"# üñîçø∂é" in str(exc.value)
         else:
-            assert_in(u"# üñîçø∂é".encode('utf8', 'replace'),
-                      str(exc.exception))
+            assert u"# üñîçø∂é".encode('utf8', 'replace') in str(exc.value)
 
     def test_custom_kernel_manager(self):
         from .fake_kernelmanager import FakeCustomKernelManager

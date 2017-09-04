@@ -19,7 +19,7 @@ class SumNode:
         weights /= np.sum(weights)
         new_children = []
         new_weights = []
-        print flags
+        print(flags)
         for c, nw, w in zip(self.children, flags, self.weights):
             if nw < 0.01:
                 new_children.append(c)

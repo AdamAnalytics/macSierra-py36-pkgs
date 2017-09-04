@@ -5,7 +5,7 @@
 # This software may be used and distributed according to the terms of the
 # GNU General Public License version 2 or any later version.
 
-from __future__ import absolute_import
+
 
 import errno
 import os
@@ -103,12 +103,10 @@ class basectx(object):
         return self.manifest()
 
     def _matchstatus(self, other, match):
-        """return match.always if match is none
-
-        This internal method provides a way for child objects to override the
+        """This internal method provides a way for child objects to override the
         match operator.
         """
-        return match or matchmod.always(self._repo.root, self._repo.getcwd())
+        return match
 
     def _buildstatus(self, other, s, match, listignored, listclean,
                      listunknown):
@@ -132,7 +130,7 @@ class basectx(object):
         deleted, unknown, ignored = s.deleted, s.unknown, s.ignored
         deletedset = set(deleted)
         d = mf1.diff(mf2, match=match, clean=listclean)
-        for fn, value in d.iteritems():
+        for fn, value in d.items():
             if fn in deletedset:
                 continue
             if value is None:
@@ -204,43 +202,84 @@ class basectx(object):
         return self.rev() in obsmod.getrevs(self._repo, 'extinct')
 
     def unstable(self):
+        msg = ("'context.unstable' is deprecated, "
+               "use 'context.orphan'")
+        self._repo.ui.deprecwarn(msg, '4.4')
+        return self.orphan()
+
+    def orphan(self):
         """True if the changeset is not obsolete but it's ancestor are"""
-        return self.rev() in obsmod.getrevs(self._repo, 'unstable')
+        return self.rev() in obsmod.getrevs(self._repo, 'orphan')
 
     def bumped(self):
+        msg = ("'context.bumped' is deprecated, "
+               "use 'context.phasedivergent'")
+        self._repo.ui.deprecwarn(msg, '4.4')
+        return self.phasedivergent()
+
+    def phasedivergent(self):
         """True if the changeset try to be a successor of a public changeset
 
         Only non-public and non-obsolete changesets may be bumped.
         """
-        return self.rev() in obsmod.getrevs(self._repo, 'bumped')
+        return self.rev() in obsmod.getrevs(self._repo, 'phasedivergent')
 
     def divergent(self):
+        msg = ("'context.divergent' is deprecated, "
+               "use 'context.contentdivergent'")
+        self._repo.ui.deprecwarn(msg, '4.4')
+        return self.contentdivergent()
+
+    def contentdivergent(self):
         """Is a successors of a changeset with multiple possible successors set
 
         Only non-public and non-obsolete changesets may be divergent.
         """
-        return self.rev() in obsmod.getrevs(self._repo, 'divergent')
+        return self.rev() in obsmod.getrevs(self._repo, 'contentdivergent')
 
     def troubled(self):
+        msg = ("'context.troubled' is deprecated, "
+               "use 'context.isunstable'")
+        self._repo.ui.deprecwarn(msg, '4.4')
+        return self.isunstable()
+
+    def isunstable(self):
         """True if the changeset is either unstable, bumped or divergent"""
-        return self.unstable() or self.bumped() or self.divergent()
+        return self.orphan() or self.phasedivergent() or self.contentdivergent()
 
     def troubles(self):
-        """return the list of troubles affecting this changesets.
-
-        Troubles are returned as strings. possible values are:
-        - unstable,
-        - bumped,
-        - divergent.
+        """Keep the old version around in order to avoid breaking extensions
+        about different return values.
         """
+        msg = ("'context.troubles' is deprecated, "
+               "use 'context.instabilities'")
+        self._repo.ui.deprecwarn(msg, '4.4')
+
         troubles = []
-        if self.unstable():
-            troubles.append('unstable')
-        if self.bumped():
+        if self.orphan():
+            troubles.append('orphan')
+        if self.phasedivergent():
             troubles.append('bumped')
-        if self.divergent():
+        if self.contentdivergent():
             troubles.append('divergent')
         return troubles
+
+    def instabilities(self):
+        """return the list of instabilities affecting this changeset.
+
+        Instabilities are returned as strings. possible values are:
+        - orphan,
+        - phase-divergent,
+        - content-divergent.
+        """
+        instabilities = []
+        if self.orphan():
+            instabilities.append('orphan')
+        if self.phasedivergent():
+            instabilities.append('phase-divergent')
+        if self.contentdivergent():
+            instabilities.append('content-divergent')
+        return instabilities
 
     def parents(self):
         """return contexts for each parent changeset"""
@@ -351,6 +390,7 @@ class basectx(object):
             reversed = True
             ctx1, ctx2 = ctx2, ctx1
 
+        match = match or matchmod.always(self._repo.root, self._repo.getcwd())
         match = ctx2._matchstatus(ctx1, match)
         r = scmutil.status([], [], [], [], [], [], [])
         r = ctx2._buildstatus(ctx1, r, match, listignored, listclean,
@@ -417,7 +457,7 @@ class changectx(basectx):
                 self._node = repo.changelog.node(changeid)
                 self._rev = changeid
                 return
-            if not pycompat.ispy3 and isinstance(changeid, long):
+            if not pycompat.ispy3 and isinstance(changeid, int):
                 changeid = str(changeid)
             if changeid == 'null':
                 self._node = nullid
@@ -514,7 +554,7 @@ class changectx(basectx):
         except AttributeError:
             return id(self)
 
-    def __nonzero__(self):
+    def __bool__(self):
         return self._rev != nullrev
 
     __bool__ = __nonzero__
@@ -698,7 +738,7 @@ class basefilectx(object):
     def _repopath(self):
         return self._path
 
-    def __nonzero__(self):
+    def __bool__(self):
         try:
             self._filenode
             return True
@@ -943,7 +983,7 @@ class basefilectx(object):
 
         if linenumber:
             def decorate(text, rev):
-                return ([(rev, i) for i in xrange(1, lines(text) + 1)], text)
+                return ([(rev, i) for i in range(1, lines(text) + 1)], text)
         else:
             def decorate(text, rev):
                 return ([(rev, False)] * lines(text), text)
@@ -1038,7 +1078,7 @@ class basefilectx(object):
                 hist[f] = curr
                 del pcache[f]
 
-        return zip(hist[base][0], hist[base][1].splitlines(True))
+        return list(zip(hist[base][0], hist[base][1].splitlines(True)))
 
     def ancestors(self, followfirst=False):
         visit = {}
@@ -1055,6 +1095,13 @@ class basefilectx(object):
                 break
             c = visit.pop(max(visit))
             yield c
+
+    def decodeddata(self):
+        """Returns `data()` after running repository decoding filters.
+
+        This is often equivalent to how the data would be expressed on disk.
+        """
+        return self._repo.wwritedata(self.path(), self.data())
 
 def _annotatepair(parents, childfctx, child, skipchild, diffopts):
     r'''
@@ -1149,7 +1196,7 @@ def _annotatepair(parents, childfctx, child, skipchild, diffopts):
         for idx, (parent, blocks) in enumerate(pblocks):
             for (a1, a2, b1, b2), _t in blocks:
                 if a2 - a1 >= b2 - b1:
-                    for bk in xrange(b1, b2):
+                    for bk in range(b1, b2):
                         if child[0][bk][0] == childfctx:
                             ak = min(a1 + (bk - b1), a2 - 1)
                             child[0][bk] = parent[0][ak]
@@ -1160,7 +1207,7 @@ def _annotatepair(parents, childfctx, child, skipchild, diffopts):
         # line.
         for parent, blocks in remaining:
             for a1, a2, b1, b2 in blocks:
-                for bk in xrange(b1, b2):
+                for bk in range(b1, b2):
                     if child[0][bk][0] == childfctx:
                         ak = min(a1 + (bk - b1), a2 - 1)
                         child[0][bk] = parent[0][ak]
@@ -1305,7 +1352,7 @@ class committablectx(basectx):
 
     __str__ = encoding.strmethod(__bytes__)
 
-    def __nonzero__(self):
+    def __bool__(self):
         return True
 
     __bool__ = __nonzero__
@@ -1703,11 +1750,9 @@ class workingctx(committablectx):
                 # Even if the wlock couldn't be grabbed, clear out the list.
                 self._repo.clearpostdsstatus()
 
-    def _dirstatestatus(self, match=None, ignored=False, clean=False,
-                        unknown=False):
+    def _dirstatestatus(self, match, ignored=False, clean=False, unknown=False):
         '''Gets the status from the dirstate -- internal use only.'''
         listignored, listclean, listunknown = ignored, clean, unknown
-        match = match or matchmod.always(self._repo.root, self._repo.getcwd())
         subrepos = []
         if '.hgsub' in self:
             subrepos = sorted(self.substate)
@@ -1800,8 +1845,6 @@ class workingctx(committablectx):
         If we aren't comparing against the working directory's parent, then we
         just use the default match object sent to us.
         """
-        superself = super(workingctx, self)
-        match = superself._matchstatus(other, match)
         if other != self._repo['.']:
             def bad(f, msg):
                 # 'f' may be a directory pattern from 'match.files()',
@@ -1831,7 +1874,7 @@ class committablefilectx(basefilectx):
         if ctx:
             self._changectx = ctx
 
-    def __nonzero__(self):
+    def __bool__(self):
         return True
 
     __bool__ = __nonzero__
@@ -1935,14 +1978,12 @@ class workingcommitctx(workingctx):
         super(workingctx, self).__init__(repo, text, user, date, extra,
                                          changes)
 
-    def _dirstatestatus(self, match=None, ignored=False, clean=False,
-                        unknown=False):
+    def _dirstatestatus(self, match, ignored=False, clean=False, unknown=False):
         """Return matched files only in ``self._status``
 
         Uncommitted files appear "clean" via this context, even if
         they aren't actually so in the working directory.
         """
-        match = match or matchmod.always(self._repo.root, self._repo.getcwd())
         if clean:
             clean = [f for f in self._manifest if f not in self._changedset]
         else:
