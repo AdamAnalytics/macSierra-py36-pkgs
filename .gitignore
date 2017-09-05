@@ -1,3 +1,4 @@
 tensorflow
 *.pyc
 install.log
+*.DS_Store
